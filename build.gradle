@@ -26,6 +26,25 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+springBoot {
+	mainClass = 'com.inspien.assignment.InspienAssignmentApplication'
+}
+
+// 과제 API에서 DB/FTP 접속 정보를 받는 일회성 도구. Spring 애플리케이션과 별도 진입점으로 실행한다.
+tasks.register('bootstrap', JavaExec) {
+	group = 'application'
+	description = '과제 API를 호출해 접속 정보를 받는다 (최초 1회). 복호화만 다시: --args="--decrypt-only"'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.inspien.assignment.bootstrap.BootstrapMain'
+	workingDir = rootDir
+	// Windows에서 콘솔 기본 인코딩(MS949)으로 출력되어 UTF-8 터미널에서 한글이 깨지는 것을 막는다
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
 }

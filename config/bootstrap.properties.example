@@ -1,0 +1,15 @@
+# 과제 API 호출 입력값
+# 이 파일을 같은 폴더에 bootstrap.properties로 복사한 뒤 값을 채운다. (bootstrap.properties는 Git에서 제외됨)
+# 파일은 UTF-8로 저장한다. PPT의 예시 문자열을 복사하면 따옴표 등이 깨질 수 있으니 직접 입력한다.
+# 값에 백슬래시(\)가 있으면 \\로 적는다.
+
+# 과제 PPT 슬라이드 5 "호출 주소"
+recruit.api.url=
+# 과제 PPT 슬라이드 5 username / password
+recruit.api.username=
+recruit.api.password=
+
+# 과제수행자 정보. 전화번호는 "010-1234-5678" 형식이며, 접속 정보 복호화 키로도 쓰인다
+applicant.name=
+applicant.phone=
+applicant.email=

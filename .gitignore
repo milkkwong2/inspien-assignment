@@ -37,8 +37,9 @@ out/
 .vscode/
 
 ### Secrets / local config ###
-# 과제 API에서 받은 접속 정보, 로컬 설정
-config/
+# 과제 API에서 받은 접속 정보, 로컬 설정 (입력 예시 파일만 커밋)
+config/*
+!config/bootstrap.properties.example
 application-local.*
 *.env
 .env

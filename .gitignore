@@ -47,6 +47,12 @@ application-local.*
 # 과제 원본 PPT (API 인증 정보 포함)
 docs/*.pptx
 
+# 발표 준비 메모 (개인용)
+docs/presentation-notes.md
+
+### H2 이력 DB (중복 판단 정보 포함, 실행 중 복사 금지) ###
+data/
+
 ### Logs ###
 logs/
 *.log

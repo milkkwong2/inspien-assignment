@@ -5,6 +5,8 @@ FTP_USER="${FTP_USER:-recruit}"
 FTP_PASSWORD="${FTP_PASSWORD:?FTP_PASSWORD is required}"
 FTP_UPLOAD_PATH="${FTP_UPLOAD_PATH:-Recruit/2026}"
 PASV_ADDRESS="${PASV_ADDRESS:-127.0.0.1}"
+PASV_MIN_PORT="${PASV_MIN_PORT:-21100}"
+PASV_MAX_PORT="${PASV_MAX_PORT:-21110}"
 
 HOME_DIR="/home/${FTP_USER}"
 
@@ -27,4 +29,5 @@ fi
 touch /var/log/vsftpd.log
 tail -F /var/log/vsftpd.log &
 
-exec vsftpd -opasv_address="${PASV_ADDRESS}" /etc/vsftpd/vsftpd.conf
+exec vsftpd -opasv_address="${PASV_ADDRESS}" -opasv_min_port="${PASV_MIN_PORT}" -opasv_max_port="${PASV_MAX_PORT}" \
+	/etc/vsftpd/vsftpd.conf

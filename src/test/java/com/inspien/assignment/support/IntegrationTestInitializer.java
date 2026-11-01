@@ -22,7 +22,9 @@ class IntegrationTestInitializer implements ApplicationContextInitializer<Config
 		String url = LocalOracle.jdbcUrl();
 		TestPropertyValues
 			.of("app.order-db.url=" + url, "app.shipment-db.url=" + url, "app.history-db.path=" + tempH2Path(),
-					"app.applicant.key=IT-" + UUID.randomUUID().toString().substring(0, 8))
+					"app.applicant.key=IT-" + UUID.randomUUID().toString().substring(0, 8),
+					// 스케줄러는 테스트가 직접 한 주기씩 돌린다
+					"app.scheduler.enabled=false")
 			.applyTo(context);
 	}
 

@@ -44,7 +44,7 @@ class ProfileConfigTest {
 			assertThat(properties.applicant()).isEqualTo(new AppProperties.Applicant("FAKE-KEY-1", "홍길동"));
 			assertThat(properties.orderDb().url()).isEqualTo("jdbc:oracle:thin:@db:1521:ORCL");
 			assertThat(properties.orderDb().password()).isEqualTo("p$w=1");
-			assertThat(properties.orderDb().poolSize()).isEqualTo(5);
+			assertThat(properties.orderDb().poolSize()).isEqualTo(7);
 			assertThat(properties.shipmentDb().username()).isEqualTo("APP2");
 			assertThat(properties.shipmentDb().poolSize()).isEqualTo(2);
 			assertThat(properties.ftp().port()).isEqualTo(30021);

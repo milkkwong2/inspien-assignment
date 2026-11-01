@@ -62,6 +62,19 @@ class ArchitectureTest {
 		.resideInAPackage(ROOT + ".receipt..")
 		.allowEmptyShould(true);
 
+	/**
+	 * retry는 단계 진행 상태만 맡는다. order(마감)·receipt·shipment·tracking(재처리 API)이 retry를 쓰고, retry는 그들을
+	 * 모른다 (D-21, D-26).
+	 */
+	@ArchTest
+	static final ArchRule retryDoesNotKnowOtherDomains = noClasses().that()
+		.resideInAPackage(ROOT + ".retry..")
+		.should()
+		.dependOnClassesThat()
+		.resideInAnyPackage(ROOT + ".order..", ROOT + ".inbound..", ROOT + ".receipt..", ROOT + ".shipment..",
+				ROOT + ".tracking..", ROOT + ".numbering..")
+		.allowEmptyShould(true);
+
 	@ArchTest
 	static final ArchRule noCyclesBetweenTopLevelPackages = slices().matching(ROOT + ".(*)..")
 		.should()

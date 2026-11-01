@@ -1,5 +1,6 @@
 package com.inspien.assignment.order;
 
+import java.sql.Timestamp;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -61,25 +62,45 @@ class OrderServiceIntegrationTest {
 	void seesOnlyMyOrdersByStatus() {
 		this.orders.insertAll(List.of(order("A020"), order("A021")));
 
-		// 다른 지원자의 RECEIVED 주문이 150건 넘게 있지만 내 것만 나온다
-		assertThat(this.orders.findIdsByStatus(OrderStatus.RECEIVED)).contains("A020", "A021")
-			.doesNotContain("A150");
+		// 다른 지원자의 N 주문이 150건 넘게 있지만 내 것만 나온다
+		assertThat(this.orders.findIdsByStatus(OrderStatus.N)).contains("A020", "A021").doesNotContain("A150");
+		assertThat(this.orders.findAllStatuses()).containsEntry("A020", OrderStatus.N).doesNotContainKey("A150");
 	}
 
 	@Test
-	void moveStatusIsConditionalAndLeavesOthersAlone() {
+	void closeIsConditionalAndLeavesOthersAlone() {
 		this.orders.insertAll(List.of(order("A003")));
 
-		assertThat(this.orders.moveStatus("A003", OrderStatus.RECEIPT_SENT, OrderStatus.SHIPPED)).as("현재 상태가 다름")
-			.isFalse();
-		assertThat(this.orders.moveStatus("A003", OrderStatus.RECEIVED, OrderStatus.RECEIPT_SENT)).isTrue();
-		assertThat(this.orders.findById("A003")).get().extracting(Order::status).isEqualTo(OrderStatus.RECEIPT_SENT);
+		assertThat(this.orders.close("A003")).isTrue();
+		assertThat(this.orders.close("A003")).as("이미 Y면 0건").isFalse();
+		assertThat(this.orders.findById("A003")).get().extracting(Order::status).isEqualTo(OrderStatus.Y);
 
 		JdbcTemplate jdbc = new JdbcTemplate(this.dataSource);
 		assertThat(jdbc.queryForObject(
 				"SELECT STATUS FROM ORDER_TB WHERE ORDER_ID = 'A003' AND APPLICANT_KEY = 'OTHER-APPLICANT-1'",
 				String.class))
-			.isEqualTo("RECEIVED");
+			.isEqualTo("N");
+	}
+
+	@Test
+	void databaseFillsCreateTimeBecauseEntityLeavesItOut() {
+		this.orders.insertAll(List.of(order("A040")));
+
+		JdbcTemplate jdbc = new JdbcTemplate(this.dataSource);
+		assertThat(jdbc.queryForObject("SELECT CREATE_TIME FROM ORDER_TB WHERE ORDER_ID = 'A040' AND APPLICANT_KEY = ?",
+				Timestamp.class, this.properties.applicant().key()))
+			.isNotNull();
+	}
+
+	@Test
+	void databaseRejectsStatusOtherThanNAndY() {
+		this.orders.insertAll(List.of(order("A050")));
+
+		// 제공 환경과 같은 CHECK 제약을 로컬에서도 재현한다 (설계서 §11.1, D-14)
+		assertThatThrownBy(() -> new JdbcTemplate(this.dataSource).update(
+				"UPDATE ORDER_TB SET STATUS = 'RECEIVED' WHERE ORDER_ID = 'A050' AND APPLICANT_KEY = ?",
+				this.properties.applicant().key()))
+			.hasMessageContaining("ORA-02290");
 	}
 
 	@Test

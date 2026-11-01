@@ -66,12 +66,24 @@ class OracleFailureClassificationTest {
 	@Test
 	void valueTooLongIsRejectedNotIntegrityViolation() {
 		RuntimeException outside = attempt(normal, em -> {
-			em.persist(new ProbeOrder("A101", "가".repeat(40), "RECEIVED"));
+			em.persist(new ProbeOrder("A101", "가".repeat(40), "N"));
 			em.flush();
 		});
 
 		assertThat(outside).isInstanceOf(JpaSystemException.class).rootCause().hasMessageContaining("ORA-12899");
 		assertThat(DbFailures.isConnectionOrResource(outside)).isFalse();
+	}
+
+	@Test
+	void checkConstraintViolationIsRejected() {
+		// 제공 환경의 CHECK 제약 STATUS IN ('N', 'Y') (설계서 §11.1). 상태 설계를 바꾸기 전의 값이 여기에 걸렸다
+		RuntimeException outside = attempt(normal, em -> {
+			em.persist(new ProbeOrder("A104", "check", "RECEIVED"));
+			em.flush();
+		});
+
+		assertThat(outside).rootCause().hasMessageContaining("ORA-02290");
+		assertThat(DbFailures.isConnectionOrResource(outside)).as("연결 실패가 아니라 DB가 거절한 것").isFalse();
 	}
 
 	@Test
@@ -85,13 +97,13 @@ class OracleFailureClassificationTest {
 
 	@Test
 	void primaryKeyConflictIsIntegrityViolation() {
-		normal.tx.executeWithoutResult(s -> normal.em.persist(new ProbeOrder("A102", "dup", "RECEIVED")));
+		normal.tx.executeWithoutResult(s -> normal.em.persist(new ProbeOrder("A102", "dup", "N")));
 
 		RuntimeException flushed = attempt(normal, em -> {
-			em.persist(new ProbeOrder("A102", "dup", "RECEIVED"));
+			em.persist(new ProbeOrder("A102", "dup", "N"));
 			em.flush();
 		});
-		RuntimeException atCommit = attempt(normal, em -> em.persist(new ProbeOrder("A102", "dup", "RECEIVED")));
+		RuntimeException atCommit = attempt(normal, em -> em.persist(new ProbeOrder("A102", "dup", "N")));
 
 		assertThat(flushed).isInstanceOf(DataIntegrityViolationException.class);
 		assertThat(atCommit).isInstanceOf(DataIntegrityViolationException.class);
@@ -125,7 +137,7 @@ class OracleFailureClassificationTest {
 	@Test
 	void commitTimeoutIsConnectionFailureWithUnknownResult() {
 		RuntimeException outside = attempt(normal, em -> {
-			em.persist(new ProbeOrder("A103", "commit", "RECEIVED"));
+			em.persist(new ProbeOrder("A103", "commit", "N"));
 			em.flush();
 			// 커밋 직전에 DB를 멈추고, 커밋이 시간 초과(2초)된 뒤 되살린다
 			LocalOracle.pause();

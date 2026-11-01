@@ -88,17 +88,17 @@ class TenantIdCompositeKeyTest {
 
 	@Test
 	void persistFillsTenantColumnAndBulkUpdateIsFiltered() {
-		run(em -> em.persist(new ProbeOrder("A001", "검증", "RECEIVED")));
+		run(em -> em.persist(new ProbeOrder("A001", "검증", "N")));
 		String storedKey = jdbc.queryForObject(
 				"SELECT APPLICANT_KEY FROM ORDER_TB WHERE ORDER_ID = 'A001' AND NAME = '검증'", String.class);
 		assertThat(storedKey).isEqualTo(MINE);
 
-		int updated = inTx(em -> em.createQuery("update ProbeOrder o set o.status = 'VERIFIED' where o.orderId = 'A001'")
+		int updated = inTx(em -> em.createQuery("update ProbeOrder o set o.name = '변경' where o.orderId = 'A001'")
 			.executeUpdate());
-		String otherStatus = jdbc.queryForObject(
-				"SELECT STATUS FROM ORDER_TB WHERE ORDER_ID = 'A001' AND APPLICANT_KEY = 'OTHER-APPLICANT-1'",
+		String otherName = jdbc.queryForObject(
+				"SELECT NAME FROM ORDER_TB WHERE ORDER_ID = 'A001' AND APPLICANT_KEY = 'OTHER-APPLICANT-1'",
 				String.class);
-		assertThat(otherStatus).isEqualTo("SHIPPED");
+		assertThat(otherName).isEqualTo("김철수");
 		assertThat(updated).isEqualTo(1);
 
 		ProbeOrder found = inTx(em -> em.find(ProbeOrder.class, new ProbeOrder.Key("A001", MINE)));

@@ -98,7 +98,7 @@ class ReceiveOrderIntegrationTest {
 		assertThat(receivedAt(result)).endsWith("+09:00");
 		List<String> orderIds = orderIds(result);
 		assertThat(this.orders.findByIds(orderIds)).hasSize(3)
-			.allSatisfy(order -> assertThat(order.status()).isEqualTo(OrderStatus.RECEIVED))
+			.allSatisfy(order -> assertThat(order.status()).isEqualTo(OrderStatus.N))
 			.anySatisfy(order -> assertThat(order.name()).isEqualTo("이서연" + "A"));
 	}
 

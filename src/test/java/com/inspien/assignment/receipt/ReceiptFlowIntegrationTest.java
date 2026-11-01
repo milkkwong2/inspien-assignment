@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -29,6 +30,10 @@ import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.receipt.application.ReceiptService;
+import com.inspien.assignment.retry.application.RetryService;
+import com.inspien.assignment.retry.domain.Stage;
+import com.inspien.assignment.retry.domain.StageState;
+import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.support.FakeFtp;
 import com.inspien.assignment.support.IntegrationTest;
 import com.inspien.assignment.support.MutableClock;
@@ -36,7 +41,8 @@ import com.inspien.assignment.support.MutableClock;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * IF-02 영수증 한 주기 (설계서 §7.2). 실패 구분과 재시도 규칙 D-09, D-10, D-22를 확인한다.
+ * IF-02 영수증 한 주기 (설계서 §7.2). 실패 구분과 재시도 규칙 D-09, D-10, D-22를 확인한다. 영수증은 H2에 자기 단계의
+ * 완료만 적고 STATUS는 바꾸지 않는다 (D-26).
  */
 @IntegrationTest
 @RecordApplicationEvents
@@ -63,8 +69,11 @@ class ReceiptFlowIntegrationTest {
 	AppProperties properties;
 
 	@Autowired
-	@Qualifier("orderDataSource")
-	DataSource orderDataSource;
+	RetryService retry;
+
+	@Autowired
+	@Qualifier("historyDataSource")
+	DataSource historyDataSource;
 
 	@Autowired
 	ApplicationEvents events;
@@ -76,7 +85,12 @@ class ReceiptFlowIntegrationTest {
 	}
 
 	@Test
-	void uploadsOneCsvPerOrderAndMovesToReceiptSent() {
+	void uploadsOneCsvPerOrderAndCompletesReceiptStageOnly() {
+		// 다른 테스트가 시계를 옮겼을 수 있다. 수신 시각은 이 테스트가 받은 시각이다
+		Instant receivedAt = this.clock.instant();
+		String receivedText = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+			.withZone(this.clock.getZone())
+			.format(receivedAt);
 		List<String> ids = receiveTwoOrders("A");
 
 		this.receipts.runCycle();
@@ -86,8 +100,11 @@ class ReceiptFlowIntegrationTest {
 				"영수증_" + name + "_" + ids.get(1) + ".csv");
 		String csv = new String(this.ftp.files.get("영수증_" + name + "_" + ids.get(1) + ".csv"), StandardCharsets.UTF_8);
 		assertThat(csv).startsWith("﻿ORDER_ID,USER_ID,NAME,ITEM_ID,ITEM_NAME,PRICE,RECEIVED_AT\r\n")
-			.contains(ids.get(1) + ",USER01,김민수A,ITEM10,\"노트북 거치대, 블랙\",32000,2026-10-31 14:05:12\r\n");
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
+			.contains(ids.get(1) + ",USER01,김민수A,ITEM10,\"노트북 거치대, 블랙\",32000," + receivedText + "\r\n");
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().completedAt())
+			.isEqualTo(receivedAt);
+		assertThat(statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 	}
 
 	@Test
@@ -99,24 +116,24 @@ class ReceiptFlowIntegrationTest {
 		this.receipts.runCycle();
 		this.receipts.runCycle();
 
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIVED);
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
 		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 
 		this.ftp.down = false;
 		this.receipts.runCycle();
 
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
 		assertThat(results(ProcessEvent.Result.CONNECTION_RECOVERED)).isEqualTo(1);
 	}
 
 	@Test
-	void orderFailureBacksOffThenFailsAfterFiveAttemptsAndOperatorResetRestarts() {
+	void orderFailureBacksOffThenFailsAfterFiveAttempts() {
 		List<String> ids = receiveTwoOrders("C");
 		this.ftp.failUploadsContaining = ids.get(0);
 
 		this.receipts.runCycle();
-		assertThat(this.orders.findById(ids.get(1)).orElseThrow().status()).as("다른 주문은 막히지 않는다")
-			.isEqualTo(OrderStatus.RECEIPT_SENT);
+		assertThat(receiptStatus(ids.get(1))).as("다른 주문은 막히지 않는다").isEqualTo(StageStatus.DONE);
 
 		// 백오프 중에는 시도하지 않는다
 		this.receipts.runCycle();
@@ -127,17 +144,16 @@ class ReceiptFlowIntegrationTest {
 			this.receipts.runCycle();
 		}
 		assertThat(failures(ids.get(0))).isEqualTo(5);
-		assertThat(this.orders.findById(ids.get(0)).orElseThrow().status()).isEqualTo(OrderStatus.RECEIPT_FAILED);
+		StageState failed = this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow();
+		assertThat(failed.status()).isEqualTo(StageStatus.FAILED);
+		assertThat(failed.attempts()).isEqualTo(5);
+		assertThat(failed.nextAttemptAt()).as("표시와 함께 다음 시도를 지운다").isNull();
 
-		// 운영자가 원인을 고치고 STATUS를 되돌린다
-		this.ftp.failUploadsContaining = null;
-		new JdbcTemplate(this.orderDataSource).update(
-				"UPDATE ORDER_TB SET STATUS = 'RECEIVED' WHERE ORDER_ID = ? AND APPLICANT_KEY = ?", ids.get(0),
-				this.properties.applicant().key());
+		// FAILED 단계는 시간이 지나도 고르지 않는다. 사람이 재처리 API로 다시 시작한다
+		this.clock.advance(Duration.ofHours(1));
 		this.receipts.runCycle();
-
-		assertThat(this.orders.findById(ids.get(0)).orElseThrow().status()).isEqualTo(OrderStatus.RECEIPT_SENT);
-		assertThat(results(ProcessEvent.Result.OPERATOR_RESET)).isEqualTo(1);
+		assertThat(failures(ids.get(0))).isEqualTo(5);
+		assertThat(statuses(ids)).containsOnly(OrderStatus.N);
 	}
 
 	@Test
@@ -150,23 +166,26 @@ class ReceiptFlowIntegrationTest {
 
 		assertThat(this.ftp.uploads).contains("영수증_" + name + "_" + ids.get(0) + "_r1.csv")
 			.doesNotContain("영수증_" + name + "_" + ids.get(0) + ".csv");
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().artifact())
+			.isEqualTo("영수증_" + name + "_" + ids.get(0) + "_r1.csv");
 	}
 
 	@Test
-	void alreadyUploadedFileOnlyUpdatesStatus() {
+	void alreadyUploadedFileOnlyRecordsCompletion() {
 		List<String> ids = receiveTwoOrders("E");
 		this.receipts.runCycle();
-		// STATUS 갱신 전에 중단된 상황을 재현: 파일은 있고 STATUS는 RECEIVED
-		new JdbcTemplate(this.orderDataSource).update(
-				"UPDATE ORDER_TB SET STATUS = 'RECEIVED' WHERE ORDER_ID = ? AND APPLICANT_KEY = ?", ids.get(0),
-				this.properties.applicant().key());
+		// 업로드 뒤 H2 완료 기록 전에 중단된 상황을 재현: 파일은 있고 영수증 단계는 PENDING
+		new JdbcTemplate(this.historyDataSource).update(
+				"UPDATE ORDER_STAGE SET COMPLETED_AT = NULL WHERE ORDER_ID = ? AND STAGE = 'RECEIPT'", ids.get(0));
+		assertThat(receiptStatus(ids.get(0))).isEqualTo(StageStatus.PENDING);
 		int uploads = this.ftp.uploads.size();
 
 		this.receipts.runCycle();
 
 		assertThat(this.ftp.uploads).hasSize(uploads);
-		assertThat(this.orders.findById(ids.get(0)).orElseThrow().status()).isEqualTo(OrderStatus.RECEIPT_SENT);
+		assertThat(receiptStatus(ids.get(0))).isEqualTo(StageStatus.DONE);
+		assertThat(results(ProcessEvent.Result.SKIP)).isEqualTo(1);
 	}
 
 	@Test
@@ -175,7 +194,10 @@ class ReceiptFlowIntegrationTest {
 
 		this.receipts.runCycle();
 
-		assertThat(this.orders.findById("Z900").orElseThrow().status()).isEqualTo(OrderStatus.RECEIPT_FAILED);
+		StageState stage = this.retry.find("Z900", Stage.RECEIPT).orElseThrow();
+		assertThat(stage.status()).isEqualTo(StageStatus.FAILED);
+		assertThat(stage.attempts()).isZero();
+		assertThat(stage.lastError()).isEqualTo("H2에 수신 기록 없음");
 		assertThat(results(ProcessEvent.Result.MISSING_RECORD)).isEqualTo(1);
 	}
 
@@ -191,6 +213,14 @@ class ReceiptFlowIntegrationTest {
 
 	private List<OrderStatus> statuses(List<String> ids) {
 		return this.orders.findByIds(ids).stream().map(Order::status).toList();
+	}
+
+	private List<StageStatus> receiptStatuses(List<String> ids) {
+		return ids.stream().map(this::receiptStatus).toList();
+	}
+
+	private StageStatus receiptStatus(String orderId) {
+		return StageState.statusOf(this.retry.find(orderId, Stage.RECEIPT).orElse(null));
 	}
 
 	private long results(ProcessEvent.Result result) {

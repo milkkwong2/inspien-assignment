@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import com.inspien.assignment.shipment.application.ShipmentService;
 
 /**
- * IF-03 배송 스케줄러. 영수증 스케줄러와 같은 스레드에서 차례로 돈다 (D-12).
+ * IF-03 배송 스케줄러. 영수증 스케줄러와 스레드가 따로라 느린 FTP를 기다리지 않는다 (D-12, D-26).
  */
 @Component
 @ConditionalOnProperty(name = "app.scheduler.enabled", havingValue = "true", matchIfMissing = true)

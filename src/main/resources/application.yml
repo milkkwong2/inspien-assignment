@@ -9,9 +9,9 @@ spring:
     open-in-view: false
   task:
     scheduling:
-      # 영수증·배송 스케줄러가 한 스레드에서 차례로 돈다 (D-12)
+      # 영수증·배송·마감에 하나씩. 느린 FTP가 배송과 마감을 붙잡지 않는다 (D-12, D-26)
       pool:
-        size: 1
+        size: 3
       thread-name-prefix: scheduler-
 
 app:
@@ -22,8 +22,8 @@ app:
     # 접속 타임아웃(3초)보다 길어야 빈 풀에서 새 연결을 맺을 수 있다
     pool-wait: 5s
   order-db:
-    # 공용 계정이라 작게, 고정 크기 (D-19)
-    pool-size: 5
+    # 공용 계정이라 작게, 고정 크기 (D-19). 동시 수신 2~3 + 스케줄러 3(셋 다 이 DB를 읽음) + 조회 1 (D-26)
+    pool-size: 7
   shipment-db:
     pool-size: 2
   history-db:
@@ -35,14 +35,14 @@ app:
     lock-stripes: 16
     # 평소 처리(1초 미만)보다 충분히 길게. 넘으면 503 BUSY로 재전송을 받는다 (D-16, D-19)
     lock-wait: 10s
-    # VARCHAR2(100)의 길이 단위·DB 문자셋은 제공 환경 확인 전까지 바이트·UTF-8로 가정한다 (설계서 §11)
+    # VARCHAR2(100 BYTE), DB 문자셋 AL32UTF8: 제공 환경에서 확인했다 (설계서 §11.1)
     db-charset: UTF-8
     max-value-bytes: 100
   ftp:
     connect-timeout: 5s
     command-timeout: 30s
     data-timeout: 30s
-    # 한글 파일명 인코딩은 제공 환경 확인 전까지 UTF-8로 가정한다 (설계서 §11)
+    # 한글 파일명은 UTF-8: 제공 환경의 기존 파일명과 FEAT UTF8로 확인했다 (설계서 §11.1)
     filename-encoding: UTF-8
   scheduler:
     enabled: true

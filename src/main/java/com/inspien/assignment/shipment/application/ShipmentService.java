@@ -30,14 +30,15 @@ import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.shipment.domain.Shipment;
 
 /**
- * IF-03 배송 (설계서 §5.3, §7.2). 영수증이 끝난(RECEIPT_SENT) 주문을 운송회사 DB에 등록하고 SHIPPED로 바꾼다.
+ * IF-03 배송 (설계서 §5.3, §7.2). STATUS=N이고 배송 단계가 PENDING인 주문을 운송회사 DB에 등록하고 H2에 배송 완료를
+ * 적는다. 영수증 단계를 기다리지 않고, STATUS도 바꾸지 않는다(마감 스케줄러 몫) (D-26).
  *
  * <p>두 DB는 한 트랜잭션으로 묶을 수 없어 정합성은 멱등성으로 맞춘다 (D-03).
  * <ul>
  * <li>SHIPMENT_ID는 INSERT 전에 H2에 미리 배정하고 재시도에 재사용한다. 커밋 결과를 모를 때 새 번호로 INSERT하면 앞 커밋이
  * 늦게 끝났을 때 배송이 두 건이 된다. 같은 번호면 PK로 부딪혀 한 건으로 끝난다.</li>
- * <li>INSERT 전에 같은 ORDER_ID의 배송을 조회한다. 있으면 INSERT 없이 STATUS만 바꾼다.</li>
- * <li>PK 충돌이면 새 트랜잭션에서 그 번호로 다시 조회해, 같은 배송이면 SHIPPED, 다르면 재시도 없이 SHIPMENT_FAILED.</li>
+ * <li>INSERT 전에 같은 ORDER_ID의 배송을 조회한다. 있으면 INSERT 없이 배송 완료만 적는다.</li>
+ * <li>PK 충돌이면 새 트랜잭션에서 그 번호로 다시 조회해, 같은 배송이면 배송 완료, 다르면 재시도 없이 배송 FAILED.</li>
  * </ul>
  */
 @Service
@@ -81,7 +82,7 @@ public class ShipmentService {
 	public void runCycle() {
 		List<String> due;
 		try {
-			due = this.retry.selectDue(STAGE, this.orders.findIdsByStatus(OrderStatus.RECEIPT_SENT), this.batchSize);
+			due = this.retry.selectDue(STAGE, this.orders.findIdsByStatus(OrderStatus.N), this.batchSize);
 		}
 		catch (RuntimeException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다", ex);
@@ -101,7 +102,7 @@ public class ShipmentService {
 		MDC.put("orderId", orderId);
 		try {
 			Optional<Order> found = this.orders.findById(orderId);
-			if (found.isEmpty() || found.get().status() != OrderStatus.RECEIPT_SENT) {
+			if (found.isEmpty() || found.get().status() != OrderStatus.N) {
 				return true;
 			}
 			if (this.inbound.receivedAt(orderId).isEmpty()) {
@@ -127,7 +128,7 @@ public class ShipmentService {
 			Optional<Shipment> existing = this.registry.findByOrderId(orderId);
 			this.shipmentDb.connected();
 			if (existing.isPresent()) {
-				// INSERT 후 STATUS 갱신 전에 중단됐던 경우. INSERT 없이 STATUS만 바꾼다
+				// INSERT 후 배송 완료 기록 전에 중단됐던 경우. INSERT 없이 완료만 적는다
 				succeeded(orderId, existing.get().shipmentId(), false);
 				return true;
 			}
@@ -174,21 +175,14 @@ public class ShipmentService {
 			return true;
 		}
 		// 다시 해도 결과가 같으므로 재시도 없이 사람에게 넘긴다
-		if (this.orders.moveStatus(shipment.orderId(), OrderStatus.RECEIPT_SENT, OrderStatus.SHIPMENT_FAILED)) {
-			this.retry.markReachedFailed(shipment.orderId(), STAGE, error);
-			this.events.publish(null, shipment.orderId(), ProcessEvent.Stage.SHIPMENT, Result.FAIL,
-					"SHIPMENT_FAILED (사람이 확인): " + error);
-		}
+		this.retry.markFailed(shipment.orderId(), STAGE, error);
+		this.events.publish(null, shipment.orderId(), ProcessEvent.Stage.SHIPMENT, Result.FAIL,
+				"배송 FAILED (사람이 확인): " + error);
 		return true;
 	}
 
 	private void succeeded(String orderId, String shipmentId, boolean inserted) {
-		if (!this.orders.moveStatus(orderId, OrderStatus.RECEIPT_SENT, OrderStatus.SHIPPED)) {
-			this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.STATE_MISMATCH,
-					"RECEIPT_SENT가 아니어서 SHIPPED로 바꾸지 않음 (배송 " + shipmentId + ")");
-			return;
-		}
-		this.retry.recordSuccess(orderId, STAGE, shipmentId);
+		this.retry.recordCompletion(orderId, STAGE, shipmentId);
 		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, inserted ? Result.SUCCESS : Result.SKIP,
 				"배송 " + shipmentId + (inserted ? " 등록" : " 이미 있음"));
 	}
@@ -203,19 +197,14 @@ public class ShipmentService {
 							error));
 			return;
 		}
-		if (this.orders.moveStatus(orderId, OrderStatus.RECEIPT_SENT, OrderStatus.SHIPMENT_FAILED)) {
-			this.retry.markReachedFailed(orderId, STAGE, error);
-			this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.FAIL,
-					failure.attempts() + "회째 실패, SHIPMENT_FAILED (사람이 확인): " + error);
-		}
+		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.FAIL,
+				failure.attempts() + "회째 실패, 배송 FAILED (사람이 확인): " + error);
 	}
 
 	private void missingRecord(String orderId) {
-		if (this.orders.moveStatus(orderId, OrderStatus.RECEIPT_SENT, OrderStatus.SHIPMENT_FAILED)) {
-			this.retry.markReachedFailed(orderId, STAGE, "H2에 수신 기록 없음");
-			this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.MISSING_RECORD,
-					"H2에 수신 기록이 없어 SHIPMENT_FAILED. 주문번호 " + orderId);
-		}
+		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
+		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.MISSING_RECORD,
+				"H2에 수신 기록이 없어 배송 FAILED. 주문번호 " + orderId);
 	}
 
 	private static String rootMessage(Throwable ex) {

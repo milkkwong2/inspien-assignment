@@ -32,13 +32,14 @@ import com.inspien.assignment.retry.application.RetryService;
 import com.inspien.assignment.retry.domain.Stage;
 
 /**
- * IF-02 영수증 (설계서 §7.2). RECEIVED 주문마다 영수증 CSV를 FTP에 올리고 RECEIPT_SENT로 바꾼다.
+ * IF-02 영수증 (설계서 §7.2). STATUS=N이고 영수증 단계가 PENDING인 주문마다 영수증 CSV를 FTP에 올리고 H2에 영수증 완료를
+ * 적는다. 배송 단계는 보지 않고, STATUS도 바꾸지 않는다(마감 스케줄러 몫) (D-26).
  *
  * <p>실패를 둘로 나눈다 (D-10, D-22).
  * <ul>
  * <li>연결 실패·우리 쪽 저장소 장애: 그 주기를 끝내고 주문별 횟수를 세지 않는다. 상대 점검 때문에 멀쩡한 주문이
  * 한꺼번에 실패 처리되지 않게 한다.</li>
- * <li>건별 실패(연결된 뒤 그 파일 업로드 실패): 그 주문만 횟수 +1, 백오프 후 재시도, 5회째면 RECEIPT_FAILED.</li>
+ * <li>건별 실패(연결된 뒤 그 파일 업로드 실패): 그 주문만 횟수 +1, 백오프 후 재시도, 5회째면 영수증 FAILED.</li>
  * </ul>
  */
 @Service
@@ -86,12 +87,13 @@ public class ReceiptService {
 	}
 
 	/**
-	 * 한 주기: 대상 조회 → 되돌림 감지·백오프 제외 → 앞에서 batchSize건 → (대상이 있으면) FTP 연결 → 주문마다 처리·커밋.
+	 * 한 주기: 대상 조회 → 영수증 PENDING이고 백오프 중이 아닌 것만 → 앞에서 batchSize건 → (대상이 있으면) FTP 연결 →
+	 * 주문마다 처리·커밋.
 	 */
 	public void runCycle() {
 		List<String> due;
 		try {
-			due = this.retry.selectDue(STAGE, this.orders.findIdsByStatus(OrderStatus.RECEIVED), this.batchSize);
+			due = this.retry.selectDue(STAGE, this.orders.findIdsByStatus(OrderStatus.N), this.batchSize);
 		}
 		catch (RuntimeException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 영수증 주기를 끝냅니다", ex);
@@ -133,8 +135,8 @@ public class ReceiptService {
 		MDC.put("orderId", orderId);
 		try {
 			Optional<Order> found = this.orders.findById(orderId);
-			if (found.isEmpty() || found.get().status() != OrderStatus.RECEIVED) {
-				// 대상을 고른 뒤 상태가 바뀌었다 (운영자 등). 이번 주기에는 건드리지 않는다
+			if (found.isEmpty() || found.get().status() != OrderStatus.N) {
+				// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
 				return true;
 			}
 			Optional<Instant> receivedAt = this.inbound.receivedAt(orderId);
@@ -169,13 +171,7 @@ public class ReceiptService {
 	}
 
 	private void succeeded(String orderId, UploadPlan plan) {
-		boolean moved = this.orders.moveStatus(orderId, OrderStatus.RECEIVED, OrderStatus.RECEIPT_SENT);
-		if (!moved) {
-			this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.STATE_MISMATCH,
-					"RECEIVED가 아니어서 RECEIPT_SENT로 바꾸지 않음 (파일 " + plan.fileName() + ")");
-			return;
-		}
-		this.retry.recordSuccess(orderId, STAGE, plan.fileName());
+		this.retry.recordCompletion(orderId, STAGE, plan.fileName());
 		if (plan.upload()) {
 			this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.SUCCESS,
 					plan.fileName() + (plan.replacesPartial() ? " 업로드 (반쪽 파일 대신)" : " 업로드"));
@@ -194,22 +190,17 @@ public class ReceiptService {
 					error));
 			return;
 		}
-		if (this.orders.moveStatus(orderId, OrderStatus.RECEIVED, OrderStatus.RECEIPT_FAILED)) {
-			this.retry.markReachedFailed(orderId, STAGE, error);
-			this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.FAIL,
-					failure.attempts() + "회째 실패, RECEIPT_FAILED (사람이 확인): " + error);
-		}
+		this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.FAIL,
+				failure.attempts() + "회째 실패, 영수증 FAILED (사람이 확인): " + error);
 	}
 
 	/**
 	 * H2에 수신 기록이 없는 주문: 수신일시를 지어내지 않는다. 다시 해도 결과가 같아 재시도 없이 사람에게 넘긴다 (D-22).
 	 */
 	private void missingRecord(String orderId) {
-		if (this.orders.moveStatus(orderId, OrderStatus.RECEIVED, OrderStatus.RECEIPT_FAILED)) {
-			this.retry.markReachedFailed(orderId, STAGE, "H2에 수신 기록 없음");
-			this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.MISSING_RECORD,
-					"H2에 수신 기록이 없어 RECEIPT_FAILED. 주문번호 " + orderId);
-		}
+		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
+		this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.MISSING_RECORD,
+				"H2에 수신 기록이 없어 영수증 FAILED. 주문번호 " + orderId);
 	}
 
 }

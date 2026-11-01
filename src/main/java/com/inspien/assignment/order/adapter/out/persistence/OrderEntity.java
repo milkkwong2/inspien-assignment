@@ -14,6 +14,8 @@ import org.hibernate.annotations.TenantId;
  * ORDER_TB 행. 복합 PK (ORDER_ID, APPLICANT_KEY).
  *
  * <p>APPLICANT_KEY는 @TenantId라 Hibernate가 모든 조회·갱신 조건과 INSERT 값에 내 키를 넣는다 (D-25).
+ *
+ * <p>CREATE_TIME은 매핑하지 않는다. INSERT에서 빠져 DB 기본값(SYSDATE)이 들어간다 (D-26, D-27).
  */
 @Entity
 @Table(name = "ORDER_TB")

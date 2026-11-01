@@ -31,9 +31,10 @@ import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.receipt.application.ReceiptService;
 import com.inspien.assignment.retry.application.RetryService;
 import com.inspien.assignment.retry.domain.Stage;
+import com.inspien.assignment.retry.domain.StageState;
+import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.domain.Shipment;
 import com.inspien.assignment.support.FakeFtp;
 import com.inspien.assignment.support.IntegrationTest;
@@ -46,7 +47,8 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
 /**
- * IF-03 배송 (설계서 §5.3, §7.2). 멱등성 규칙 D-03(보완), D-19와 실패 구분 D-10, D-22를 확인한다.
+ * IF-03 배송 (설계서 §5.3, §7.2). 멱등성 규칙 D-03(보완), D-19와 실패 구분 D-10, D-22를 확인한다. 배송은 영수증을
+ * 기다리지 않고, H2에 자기 단계의 완료만 적는다 (D-26).
  */
 @IntegrationTest
 @RecordApplicationEvents
@@ -56,9 +58,6 @@ class ShipmentFlowIntegrationTest {
 
 	@Autowired
 	ReceiveOrderService receive;
-
-	@Autowired
-	ReceiptService receipts;
 
 	@Autowired
 	ShipmentService shipments;
@@ -79,6 +78,10 @@ class ShipmentFlowIntegrationTest {
 	@Qualifier("shipmentDataSource")
 	DataSource shipmentDataSource;
 
+	@Autowired
+	@Qualifier("historyDataSource")
+	DataSource historyDataSource;
+
 	@MockitoSpyBean
 	ShipmentRegistry registry;
 
@@ -86,12 +89,14 @@ class ShipmentFlowIntegrationTest {
 	ApplicationEvents events;
 
 	@Test
-	void registersShipmentWithMyKeyAndMovesToShipped() {
-		List<String> ids = receivedAndReceipted("A");
+	void registersShipmentWithMyKeyWithoutWaitingForReceipt() {
+		List<String> ids = received("A");
 
 		this.shipments.runCycle();
 
-		assertThat(statuses(ids)).containsOnly(OrderStatus.SHIPPED);
+		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("영수증은 아직 시작도 안 했다").isEmpty();
+		assertThat(statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 		JdbcTemplate jdbc = new JdbcTemplate(this.shipmentDataSource);
 		assertThat(jdbc.queryForList("SELECT ORDER_ID FROM SHIPMENT_TB WHERE APPLICANT_KEY = ?", String.class,
 				this.properties.applicant().key()))
@@ -103,21 +108,23 @@ class ShipmentFlowIntegrationTest {
 	}
 
 	@Test
-	void existingShipmentForOrderOnlyUpdatesStatus() {
-		List<String> ids = receivedAndReceipted("B");
+	void existingShipmentForOrderOnlyRecordsCompletion() {
+		List<String> ids = received("B");
 		this.shipments.runCycle();
-		// INSERT 후 STATUS 갱신 전에 중단된 상황
-		resetStatus(ids.get(0), "RECEIPT_SENT");
+		// INSERT 후 H2 완료 기록 전에 중단된 상황
+		new JdbcTemplate(this.historyDataSource).update(
+				"UPDATE ORDER_STAGE SET COMPLETED_AT = NULL WHERE ORDER_ID = ? AND STAGE = 'SHIPMENT'", ids.get(0));
+		assertThat(shipmentStatus(ids.get(0))).isEqualTo(StageStatus.PENDING);
 
 		this.shipments.runCycle();
 
-		assertThat(this.orders.findById(ids.get(0)).orElseThrow().status()).isEqualTo(OrderStatus.SHIPPED);
+		assertThat(shipmentStatus(ids.get(0))).isEqualTo(StageStatus.DONE);
 		assertThat(shipmentCount(ids.get(0))).isEqualTo(1);
 	}
 
 	@Test
 	void lateCommitOfPreviousAttemptEndsAsOneShipment() {
-		List<String> ids = receivedAndReceipted("C");
+		List<String> ids = received("C");
 		String orderId = ids.get(0);
 		// 앞 시도: 미리 배정한 번호로 INSERT가 늦게 커밋돼, 다음 시도의 조회에는 보이지 않았다
 		String shipmentId = this.retry.artifactOrAssign(orderId, Stage.SHIPMENT,
@@ -128,13 +135,13 @@ class ShipmentFlowIntegrationTest {
 
 		this.shipments.runCycle();
 
-		assertThat(this.orders.findById(orderId).orElseThrow().status()).isEqualTo(OrderStatus.SHIPPED);
+		assertThat(shipmentStatus(orderId)).isEqualTo(StageStatus.DONE);
 		assertThat(shipmentCount(orderId)).isEqualTo(1);
 	}
 
 	@Test
 	void differentShipmentUnderPreassignedIdFailsWithoutRetry() {
-		List<String> ids = receivedAndReceipted("D");
+		List<String> ids = received("D");
 		String orderId = ids.get(0);
 		String shipmentId = this.retry.artifactOrAssign(orderId, Stage.SHIPMENT,
 				() -> this.numbering.next(IdSequence.SHIPMENT));
@@ -142,25 +149,28 @@ class ShipmentFlowIntegrationTest {
 
 		this.shipments.runCycle();
 
-		assertThat(this.orders.findById(orderId).orElseThrow().status()).isEqualTo(OrderStatus.SHIPMENT_FAILED);
+		StageState stage = this.retry.find(orderId, Stage.SHIPMENT).orElseThrow();
+		assertThat(stage.status()).isEqualTo(StageStatus.FAILED);
+		assertThat(stage.attempts()).as("재시도 없이").isZero();
+		assertThat(stage.artifact()).as("미리 배정한 번호는 그대로").isEqualTo(shipmentId);
 	}
 
 	@Test
 	void shipmentDbOutageSkipsCycleWithoutCounting() {
-		List<String> ids = receivedAndReceipted("E");
+		List<String> ids = received("E");
 		doThrow(new CannotCreateTransactionException("down")).when(this.registry).findByOrderId(anyString());
 
 		this.shipments.runCycle();
 		this.shipments.runCycle();
 
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
+		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.PENDING);
 		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isZero();
 		assertThat(count(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 	}
 
 	@Test
 	void rejectedInsertIsCountedPerOrder() {
-		List<String> ids = receivedAndReceipted("F");
+		List<String> ids = received("F");
 		doThrow(new JpaSystemException(new RuntimeException("ORA-12899"))).when(this.registry).insert(any());
 
 		this.shipments.runCycle();
@@ -168,26 +178,17 @@ class ShipmentFlowIntegrationTest {
 		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isEqualTo(1);
 		assertThat(this.retry.find(ids.get(1), Stage.SHIPMENT).orElseThrow().attempts()).as("다른 주문은 계속 시도")
 			.isEqualTo(1);
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
+		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.PENDING);
 	}
 
-	private List<String> receivedAndReceipted(String mark) {
+	private List<String> received(String mark) {
 		String body = """
 				<HEADER><USER_ID>USER01</USER_ID><NAME>김민수%1$s</NAME><ADDRESS>서울 %1$s</ADDRESS></HEADER>
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM09</ITEM_ID><ITEM_NAME>키보드</ITEM_NAME><PRICE>45000</PRICE></ITEM>
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM10</ITEM_ID><ITEM_NAME>마우스</ITEM_NAME><PRICE>32000</PRICE></ITEM>
 				""".formatted(mark);
 		ReceiveResult result = this.receive.receive(body.getBytes(EUC_KR), null);
-		List<String> ids = result.stored().stream().map(ReceiveResult.Stored::orderId).toList();
-		this.receipts.runCycle();
-		assertThat(statuses(ids)).containsOnly(OrderStatus.RECEIPT_SENT);
-		return ids;
-	}
-
-	private void resetStatus(String orderId, String status) {
-		new JdbcTemplate(this.shipmentDataSource).update(
-				"UPDATE ORDER_TB SET STATUS = ? WHERE ORDER_ID = ? AND APPLICANT_KEY = ?", status, orderId,
-				this.properties.applicant().key());
+		return result.stored().stream().map(ReceiveResult.Stored::orderId).toList();
 	}
 
 	private int shipmentCount(String orderId) {
@@ -198,6 +199,14 @@ class ShipmentFlowIntegrationTest {
 
 	private List<OrderStatus> statuses(List<String> ids) {
 		return this.orders.findByIds(ids).stream().map(Order::status).toList();
+	}
+
+	private List<StageStatus> shipmentStatuses(List<String> ids) {
+		return ids.stream().map(this::shipmentStatus).toList();
+	}
+
+	private StageStatus shipmentStatus(String orderId) {
+		return StageState.statusOf(this.retry.find(orderId, Stage.SHIPMENT).orElse(null));
 	}
 
 	private long count(ProcessEvent.Result result) {

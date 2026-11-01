@@ -43,6 +43,9 @@ class OrderStageEntity extends BaseTimeEntity {
 	@Column(name = "ARTIFACT")
 	private String artifact;
 
+	@Column(name = "COMPLETED_AT")
+	private Instant completedAt;
+
 	protected OrderStageEntity() {
 	}
 
@@ -51,12 +54,14 @@ class OrderStageEntity extends BaseTimeEntity {
 		this.stage = stage;
 	}
 
-	void update(int attempts, Instant nextAttemptAt, boolean reachedFailed, String lastError, String artifact) {
+	void update(int attempts, Instant nextAttemptAt, boolean reachedFailed, String lastError, String artifact,
+			Instant completedAt) {
 		this.attempts = attempts;
 		this.nextAttemptAt = nextAttemptAt;
 		this.reachedFailed = reachedFailed;
 		this.lastError = lastError;
 		this.artifact = artifact;
+		this.completedAt = completedAt;
 	}
 
 	String orderId() {
@@ -85,6 +90,10 @@ class OrderStageEntity extends BaseTimeEntity {
 
 	String artifact() {
 		return this.artifact;
+	}
+
+	Instant completedAt() {
+		return this.completedAt;
 	}
 
 	static class Key implements Serializable {

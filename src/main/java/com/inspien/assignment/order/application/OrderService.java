@@ -2,6 +2,7 @@ package com.inspien.assignment.order.application;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -12,7 +13,7 @@ import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 
 /**
- * 다른 도메인이 ORDER_TB에 닿는 유일한 길 (D-21). 상태 변경은 조건부 갱신으로만 나간다 (D-06).
+ * 다른 도메인이 ORDER_TB에 닿는 유일한 길 (D-21). STATUS를 바꾸는 것은 마감(N→Y 조건부) 하나뿐이다 (D-26).
  */
 @Service
 public class OrderService {
@@ -46,22 +47,22 @@ public class OrderService {
 		return this.store.findIdsByStatus(status);
 	}
 
+	/**
+	 * 내 주문번호와 STATUS 전부, 주문번호 오름차순.
+	 */
 	@OrderTx(readOnly = true)
-	public List<String> findAllIds() {
-		return this.store.findAllIds();
+	public Map<String, OrderStatus> findAllStatuses() {
+		return this.store.findAllStatuses();
 	}
 
 	/**
-	 * 현재 상태가 from일 때만 to로 바꾼다.
+	 * STATUS가 N일 때만 Y로 바꾼다. 쓰는 곳은 마감 하나라 0건(이미 Y)은 정상이다 (D-26).
 	 *
-	 * @return 바꿨으면 true. 다른 상태였으면 false (호출한 쪽이 STATE_MISMATCH로 남긴다)
+	 * @return 바꿨으면 true
 	 */
 	@OrderTx
-	public boolean moveStatus(String orderId, OrderStatus from, OrderStatus to) {
-		if (!from.canMoveTo(to)) {
-			throw new IllegalArgumentException("허용하지 않는 상태 전이: " + from + " → " + to);
-		}
-		return this.store.updateStatus(orderId, from, to) == 1;
+	public boolean close(String orderId) {
+		return this.store.close(orderId) == 1;
 	}
 
 }

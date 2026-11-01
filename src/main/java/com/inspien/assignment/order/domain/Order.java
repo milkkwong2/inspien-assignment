@@ -15,7 +15,7 @@ import java.util.Objects;
  * @param address 주소 (HEADER)
  * @param itemName 상품명
  * @param price 가격 (숫자 문자열)
- * @param status 처리 상태
+ * @param status 연계 완료 플래그 (N/Y)
  */
 public record Order(String orderId, String userId, String itemId, String name, String address, String itemName,
 		String price, OrderStatus status) {
@@ -26,16 +26,16 @@ public record Order(String orderId, String userId, String itemId, String name, S
 	}
 
 	/**
-	 * 수신해 새로 저장할 주문.
+	 * 수신해 새로 저장할 주문. 연계 진행 중(N)으로 저장한다.
 	 */
 	public static Order received(String orderId, String userId, String itemId, String name, String address,
 			String itemName, String price) {
-		return new Order(orderId, userId, itemId, name, address, itemName, price, OrderStatus.RECEIVED);
+		return new Order(orderId, userId, itemId, name, address, itemName, price, OrderStatus.N);
 	}
 
 	/**
 	 * 같은 주문 내용인가. 재처리 때 미리 배정한 번호로 조회한 행이 원본과 같은지 볼 때 쓴다 (D-16, D-19).
-	 * 상태는 비교하지 않는다. 그사이 스케줄러가 처리를 진행했을 수 있다.
+	 * 상태는 비교하지 않는다. 그사이 마감 스케줄러가 Y로 바꿨을 수 있다.
 	 */
 	public boolean sameContentAs(Order other) {
 		return this.orderId.equals(other.orderId) && Objects.equals(this.userId, other.userId)

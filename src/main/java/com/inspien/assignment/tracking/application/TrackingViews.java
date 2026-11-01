@@ -16,24 +16,27 @@ public final class TrackingViews {
 	}
 
 	/**
-	 * 이 주문 어디까지 갔나: 현재 STATUS(Oracle) + H2 이력.
+	 * 이 주문 어디까지 갔나: 연계 완료 플래그 STATUS(Oracle N/Y) + 단계별 상태(H2) + 이벤트 (D-26).
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record OrderDetail(String orderId, String status, String messageId, OffsetDateTime receivedAt,
 			String userId, String itemId, StageView receipt, StageView shipment, List<EventView> events) {
 	}
 
+	/**
+	 * 목록 한 줄. lastError는 끝나지 않은 단계의 마지막 오류다 (영수증 먼저).
+	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
-	public record OrderSummary(String orderId, String status, String messageId, OffsetDateTime receivedAt,
-			String lastError) {
+	public record OrderSummary(String orderId, String status, String receipt, String shipment, String messageId,
+			OffsetDateTime receivedAt, String lastError) {
 	}
 
 	/**
-	 * 단계별 재시도 상태. 영수증은 fileName, 배송은 shipmentId가 결과물이다.
+	 * 단계 하나의 상태(PENDING·DONE·FAILED)와 재시도 정보. 영수증은 fileName, 배송은 shipmentId가 결과물이다.
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
-	public record StageView(int attempts, OffsetDateTime nextAttemptAt, String lastError, String fileName,
-			String shipmentId) {
+	public record StageView(String status, int attempts, OffsetDateTime nextAttemptAt, OffsetDateTime completedAt,
+			String lastError, String fileName, String shipmentId) {
 	}
 
 	@JsonInclude(JsonInclude.Include.NON_NULL)

@@ -2,6 +2,7 @@ package com.inspien.assignment.order.application.port;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.inspien.assignment.order.domain.Order;
@@ -27,15 +28,15 @@ public interface OrderStore {
 	List<String> findIdsByStatus(OrderStatus status);
 
 	/**
-	 * 내 주문번호 전부, 오름차순.
+	 * 내 주문번호와 STATUS 전부, 주문번호 오름차순.
 	 */
-	List<String> findAllIds();
+	Map<String, OrderStatus> findAllStatuses();
 
 	/**
-	 * 조건부 갱신: 현재 상태가 expected일 때만 next로 바꾼다 (D-06).
+	 * 조건부 갱신: STATUS가 N일 때만 Y로 바꾼다 (D-26).
 	 *
 	 * @return 갱신한 행 수 (0 또는 1)
 	 */
-	long updateStatus(String orderId, OrderStatus expected, OrderStatus next);
+	long close(String orderId);
 
 }

@@ -1,9 +1,12 @@
 package com.inspien.assignment.order.adapter.out.persistence;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import com.querydsl.core.Tuple;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -77,16 +80,23 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 	}
 
 	@Override
-	public List<String> findAllIds() {
-		return this.query.select(order.orderId).from(order).orderBy(order.orderId.asc()).fetch();
+	public Map<String, OrderStatus> findAllStatuses() {
+		Map<String, OrderStatus> statuses = new LinkedHashMap<>();
+		for (Tuple row : this.query.select(order.orderId, order.status)
+			.from(order)
+			.orderBy(order.orderId.asc())
+			.fetch()) {
+			statuses.put(row.get(order.orderId), OrderStatus.fromDb(row.get(order.status)));
+		}
+		return statuses;
 	}
 
 	@Override
-	public long updateStatus(String orderId, OrderStatus expected, OrderStatus next) {
-		// 엔티티 변경 감지로 갱신하면 "AND STATUS = 현재" 조건이 빠진다. 벌크 UPDATE로 하고 건수를 본다 (D-06)
+	public long close(String orderId) {
+		// 엔티티 변경 감지로 갱신하면 "AND STATUS = 'N'" 조건이 빠진다. 벌크 UPDATE로 하고 건수를 본다 (설계서 §4.1)
 		return this.query.update(order)
-			.set(order.status, next.name())
-			.where(order.orderId.eq(orderId), order.status.eq(expected.name()))
+			.set(order.status, OrderStatus.Y.name())
+			.where(order.orderId.eq(orderId), order.status.eq(OrderStatus.N.name()))
 			.execute();
 	}
 
@@ -101,9 +111,8 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 	}
 
 	private static Order toModel(OrderEntity e) {
-		OrderStatus status = OrderStatus.parse(e.status())
-			.orElseThrow(() -> new IllegalStateException("알 수 없는 STATUS 값: " + e.orderId() + "=" + e.status()));
-		return new Order(e.orderId(), e.userId(), e.itemId(), e.name(), e.address(), e.itemName(), e.price(), status);
+		return new Order(e.orderId(), e.userId(), e.itemId(), e.name(), e.address(), e.itemName(), e.price(),
+				OrderStatus.fromDb(e.status()));
 	}
 
 }

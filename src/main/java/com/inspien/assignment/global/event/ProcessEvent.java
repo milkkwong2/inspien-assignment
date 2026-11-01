@@ -18,9 +18,12 @@ import java.time.Instant;
 public record ProcessEvent(Instant occurredAt, String messageId, String orderId, Stage stage, Result result,
 		String detail) {
 
+	/**
+	 * CLOSE는 마감(STATUS N→Y)이다 (D-26).
+	 */
 	public enum Stage {
 
-		RECEIVE, RECEIPT, SHIPMENT
+		RECEIVE, RECEIPT, SHIPMENT, CLOSE
 
 	}
 
@@ -29,8 +32,7 @@ public record ProcessEvent(Instant occurredAt, String messageId, String orderId,
 	 */
 	public enum Result {
 
-		SUCCESS, FAIL, SKIP, REJECT, WARN, OPERATOR_RESET, CYCLE_SKIPPED, CONNECTION_RECOVERED, STATE_MISMATCH,
-		MISSING_RECORD
+		SUCCESS, FAIL, SKIP, REJECT, WARN, OPERATOR_RESET, CYCLE_SKIPPED, CONNECTION_RECOVERED, MISSING_RECORD
 
 	}
 

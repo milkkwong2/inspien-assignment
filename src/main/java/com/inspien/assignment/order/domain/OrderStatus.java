@@ -1,56 +1,33 @@
 package com.inspien.assignment.order.domain;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-
 /**
- * ORDER_TB.STATUS 값. 작업 큐는 이 컬럼 하나다 (설계서 §6, D-04, D-06).
+ * ORDER_TB.STATUS 값: 연계 완료 플래그 (설계서 §6, D-26). 제공 DB의 CHECK 제약이 N·Y만 받는다.
  *
  * <pre>
- * RECEIVED ──영수증──▶ RECEIPT_SENT ──배송──▶ SHIPPED
- *    │                     │
- *    ▼                     ▼
- * RECEIPT_FAILED       SHIPMENT_FAILED     (사람이 확인. 운영자가 앞 상태로 되돌린다)
+ * N ──마감 스케줄러 (영수증 DONE 그리고 배송 DONE)──▶ Y
  * </pre>
+ *
+ * <p>단계별 진행(영수증·배송)은 여기 없고 H2 ORDER_STAGE에 있다. Y는 두 단계를 합친 요약이라 쓰는 곳은 마감 스케줄러
+ * 하나다.
  */
 public enum OrderStatus {
 
-	/** 주문 저장됨, 영수증 대기 */
-	RECEIVED,
+	/** 연계 진행 중. 수신할 때 저장한다 */
+	N,
 
-	/** 영수증 업로드됨, 배송 대기 */
-	RECEIPT_SENT,
-
-	/** 배송 등록됨, 완료 */
-	SHIPPED,
-
-	/** 영수증 자동 처리 멈춤 (재시도 한도 초과, 또는 수신 기록 없음) */
-	RECEIPT_FAILED,
-
-	/** 배송 자동 처리 멈춤 (재시도 한도 초과, 또는 수신 기록 없음) */
-	SHIPMENT_FAILED;
+	/** 영수증과 배송이 모두 끝남. 작업 대상에서 빠진다 */
+	Y;
 
 	/**
-	 * 앱이 하는 전이. 운영자 되돌림(*_FAILED → 앞 상태)은 사람이 Oracle에서 직접 하므로 여기 없다.
+	 * DB 값을 읽는다. N·Y가 아니면 예외다. 내 키의 행에는 생길 수 없는 값이라, 조용히 대상에서 빼지 않고 멈춘다.
 	 */
-	private static final Map<OrderStatus, Set<OrderStatus>> APP_TRANSITIONS = Map.of(RECEIVED,
-			Set.of(RECEIPT_SENT, RECEIPT_FAILED), RECEIPT_SENT, Set.of(SHIPPED, SHIPMENT_FAILED));
-
-	public boolean canMoveTo(OrderStatus next) {
-		return APP_TRANSITIONS.getOrDefault(this, Set.of()).contains(next);
-	}
-
-	/**
-	 * DB 값을 읽는다. 운영자가 손으로 넣은 값처럼 알 수 없는 값이면 비어 있다.
-	 */
-	public static Optional<OrderStatus> parse(String value) {
+	public static OrderStatus fromDb(String value) {
 		for (OrderStatus status : values()) {
 			if (status.name().equals(value)) {
-				return Optional.of(status);
+				return status;
 			}
 		}
-		return Optional.empty();
+		throw new IllegalStateException("알 수 없는 STATUS 값: " + value);
 	}
 
 }

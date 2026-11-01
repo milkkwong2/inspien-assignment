@@ -12,6 +12,8 @@ import org.hibernate.annotations.TenantId;
 
 /**
  * SHIPMENT_TB 행. 복합 PK (SHIPMENT_ID, APPLICANT_KEY). APPLICANT_KEY는 @TenantId (D-25).
+ *
+ * <p>CREATE_DATE는 매핑하지 않는다. INSERT에서 빠져 DB 기본값(SYSDATE)이 들어간다 (D-26, D-27).
  */
 @Entity
 @Table(name = "SHIPMENT_TB")

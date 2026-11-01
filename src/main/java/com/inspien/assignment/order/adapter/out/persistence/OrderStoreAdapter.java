@@ -77,6 +77,11 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 	}
 
 	@Override
+	public List<String> findAllIds() {
+		return this.query.select(order.orderId).from(order).orderBy(order.orderId.asc()).fetch();
+	}
+
+	@Override
 	public long updateStatus(String orderId, OrderStatus expected, OrderStatus next) {
 		// 엔티티 변경 감지로 갱신하면 "AND STATUS = 현재" 조건이 빠진다. 벌크 UPDATE로 하고 건수를 본다 (D-06)
 		return this.query.update(order)

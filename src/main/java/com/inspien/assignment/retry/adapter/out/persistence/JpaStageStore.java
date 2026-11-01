@@ -40,7 +40,8 @@ class JpaStageStore implements StageStore {
 					OrderStageEntity.class)
 			.setParameter("stage", stage.name())
 			.setParameter("ids", orderIds)
-			.getResultStream()
+			.getResultList()
+			.stream()
 			.map(JpaStageStore::toModel)
 			.collect(Collectors.toMap(StageState::orderId, Function.identity()));
 	}

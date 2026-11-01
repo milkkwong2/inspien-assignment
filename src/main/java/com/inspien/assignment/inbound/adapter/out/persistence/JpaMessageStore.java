@@ -9,11 +9,13 @@ import java.util.Optional;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.cfg.DateTimeFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.stereotype.Repository;
 
+import com.inspien.assignment.inbound.application.MessageSummary;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.inbound.application.port.MessageStore;
 import com.inspien.assignment.inbound.domain.AssignedOrder;
@@ -101,6 +103,56 @@ class JpaMessageStore implements MessageStore {
 			this.em.persist(new MessageOrderEntity(o.orderId(), o.messageId(), o.seq(), o.userId(), o.itemId(),
 					o.receivedAt()));
 		}
+	}
+
+	@Override
+	public Optional<MessageSummary> findSummary(String messageId) {
+		return this.messages.findById(messageId).map(JpaMessageStore::toSummary);
+	}
+
+	@Override
+	public List<MessageSummary> findSummaries(MessageState state, Instant from, Instant to, String after, int limit) {
+		StringBuilder jpql = new StringBuilder("select m from ReceivedMessageEntity m where 1 = 1");
+		Map<String, Object> params = new LinkedHashMap<>();
+		if (state != null) {
+			jpql.append(" and m.state = :state");
+			params.put("state", state.name());
+		}
+		if (from != null) {
+			jpql.append(" and m.receivedAt >= :from");
+			params.put("from", from);
+		}
+		if (to != null) {
+			jpql.append(" and m.receivedAt < :to");
+			params.put("to", to);
+		}
+		if (after != null) {
+			jpql.append(" and m.id > :after");
+			params.put("after", after);
+		}
+		jpql.append(" order by m.id asc");
+		var query = this.em.createQuery(jpql.toString(), ReceivedMessageEntity.class).setMaxResults(limit);
+		params.forEach(query::setParameter);
+		return query.getResultList().stream().map(JpaMessageStore::toSummary).toList();
+	}
+
+	private static MessageSummary toSummary(ReceivedMessageEntity e) {
+		MessageState state = MessageState.valueOf(e.state());
+		ReceiveResult result = null;
+		String errorCode = null;
+		String errorDetail = null;
+		if (e.responseBody() != null) {
+			if (state == MessageState.COMPLETED) {
+				result = JSON.readValue(e.responseBody(), ReceiveResult.class);
+			}
+			else {
+				JsonNode body = JSON.readTree(e.responseBody());
+				errorCode = body.path("code").asString(null);
+				errorDetail = body.path("detail").asString(null);
+			}
+		}
+		return new MessageSummary(e.id(), state, e.responseStatus(), e.receivedAt(), e.completedAt(), errorCode,
+				errorDetail, result);
 	}
 
 	private ReceivedMessageEntity find(String messageId) {

@@ -46,6 +46,11 @@ public class OrderService {
 		return this.store.findIdsByStatus(status);
 	}
 
+	@OrderTx(readOnly = true)
+	public List<String> findAllIds() {
+		return this.store.findAllIds();
+	}
+
 	/**
 	 * 현재 상태가 from일 때만 to로 바꾼다.
 	 *

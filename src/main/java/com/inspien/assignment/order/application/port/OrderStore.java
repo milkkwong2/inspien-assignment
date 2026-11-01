@@ -27,6 +27,11 @@ public interface OrderStore {
 	List<String> findIdsByStatus(OrderStatus status);
 
 	/**
+	 * 내 주문번호 전부, 오름차순.
+	 */
+	List<String> findAllIds();
+
+	/**
 	 * 조건부 갱신: 현재 상태가 expected일 때만 next로 바꾼다 (D-06).
 	 *
 	 * @return 갱신한 행 수 (0 또는 1)

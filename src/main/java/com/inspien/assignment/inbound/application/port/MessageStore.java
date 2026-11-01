@@ -5,9 +5,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import com.inspien.assignment.inbound.application.MessageSummary;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.inbound.domain.AssignedOrder;
 import com.inspien.assignment.inbound.domain.MessageKey;
+import com.inspien.assignment.inbound.domain.MessageState;
 import com.inspien.assignment.inbound.domain.ReceivedMessage;
 
 /**
@@ -39,5 +41,18 @@ public interface MessageStore {
 	List<AssignedOrder> findAssignedByOrderIds(Collection<String> orderIds);
 
 	void insertAssigned(List<AssignedOrder> orders);
+
+	Optional<MessageSummary> findSummary(String messageId);
+
+	/**
+	 * 메시지 목록, 메시지 ID(시간순) 오름차순.
+	 *
+	 * @param state 상태 (null이면 전부)
+	 * @param from 수신 시각 하한, 포함 (null이면 없음)
+	 * @param to 수신 시각 상한, 제외 (null이면 없음)
+	 * @param after 이 메시지 ID 다음부터 (null이면 처음부터)
+	 * @param limit 최대 건수
+	 */
+	List<MessageSummary> findSummaries(MessageState state, Instant from, Instant to, String after, int limit);
 
 }

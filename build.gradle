@@ -28,9 +28,20 @@ dependencies {
 	implementation "io.github.openfeign.querydsl:querydsl-jpa:${querydslVersion}"
 	annotationProcessor "io.github.openfeign.querydsl:querydsl-apt:${querydslVersion}:jpa"
 	annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+	// FTP 클라이언트 (영수증 업로드)
+	implementation 'commons-net:commons-net:3.13.0'
+	// H2 내부 키 (시간순 정렬되는 13자 ID)
+	implementation 'com.github.f4b6a3:tsid-creator:5.2.6'
 	runtimeOnly 'com.oracle.database.jdbc:ojdbc17'
+	// 처리 이력 DB (앱 안에서 도는 파일 DB)
+	runtimeOnly 'com.h2database:h2'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	// 로컬과 같은 Oracle·FTP 이미지로 통합 테스트
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-oracle-free'
+	// 패키지 의존 규칙 강제
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

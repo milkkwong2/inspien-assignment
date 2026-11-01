@@ -1,0 +1,28 @@
+# 공통 설정. 접속 대상은 프로필로 고른다.
+#   local    : 로컬 컨테이너 (compose.yaml). 값은 저장소에 있다.
+#   provided : 과제 제공 환경. config/의 부트스트랩 결과 파일을 그대로 읽는다 (D-23).
+# 프로필 없이 실행하면 지원자 키·이름이 없어 기동에 실패한다. 제공 환경(운영)에 실수로 붙지 않게 하려는 것이다 (D-11).
+spring:
+  application:
+    name: inspien-assignment
+  jpa:
+    open-in-view: false
+
+app:
+  oracle:
+    # 기본값이 무한 대기이거나 너무 길어 장애가 "끝없이" 멈춤으로 바뀌는 곳만 정한다 (D-19)
+    connect-timeout: 3s
+    read-timeout: 10s
+    # 접속 타임아웃(3초)보다 길어야 빈 풀에서 새 연결을 맺을 수 있다
+    pool-wait: 5s
+  order-db:
+    # 공용 계정이라 작게, 고정 크기 (D-19)
+    pool-size: 5
+  shipment-db:
+    pool-size: 2
+  history-db:
+    path: ./data/history
+
+logging:
+  pattern:
+    level: "%5p [trace=%X{traceId:-} msg=%X{messageId:-} order=%X{orderId:-}]"

@@ -1,0 +1,29 @@
+# 과제 제공 환경 (운영으로 취급, D-11).
+# 부트스트랩이 만든 config/ 파일을 그대로 읽는다. 값을 복사해 두지 않는다 (D-23).
+# 파일이 없으면 기동에 실패한다.
+#   connection.json      : APPLICANT_KEY, ORDER_TB_CONN, SHIPMENT_TB_CONN, FTP_CONN (JSON은 YAML로 읽힌다)
+#   bootstrap.properties : applicant.name (영수증 파일명의 지원자명)
+#     spring.config.import는 .properties를 ISO-8859-1로 읽어 한글이 깨지므로
+#     ProvidedApplicantNameLoader가 UTF-8로 직접 읽어 app.applicant.name에 넣는다.
+spring:
+  config:
+    import:
+      - file:${app.provided-config-dir:./config}/connection.json[.yaml]
+
+app:
+  applicant:
+    key: ${APPLICANT_KEY}
+  order-db:
+    url: ${ORDER_TB_CONN.URL}
+    username: ${ORDER_TB_CONN.ID}
+    password: ${ORDER_TB_CONN.PASSWORD}
+  shipment-db:
+    url: ${SHIPMENT_TB_CONN.URL}
+    username: ${SHIPMENT_TB_CONN.ID}
+    password: ${SHIPMENT_TB_CONN.PASSWORD}
+  ftp:
+    host: ${FTP_CONN.URL}
+    port: ${FTP_CONN.PORT}
+    username: ${FTP_CONN.ID}
+    password: ${FTP_CONN.PASSWORD}
+    path: ${FTP_CONN.PATH}

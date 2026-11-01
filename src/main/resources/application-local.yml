@@ -1,0 +1,20 @@
+# 로컬 컨테이너 환경 (compose.yaml, D-14). 비밀이 아닌 로컬 전용 값이라 저장소에 둔다.
+app:
+  applicant:
+    key: LOCAL-APPLICANT-0001
+    name: 홍길동
+  order-db:
+    url: jdbc:oracle:thin:@localhost:1521/FREEPDB1
+    username: applicant
+    password: applicant_local
+  shipment-db:
+    # 제공 환경과 같이 같은 인스턴스·계정이지만, 서로 다른 시스템으로 보고 DataSource를 나눈다 (D-02)
+    url: jdbc:oracle:thin:@localhost:1521/FREEPDB1
+    username: applicant
+    password: applicant_local
+  ftp:
+    host: localhost
+    port: 2121
+    username: recruit
+    password: recruit_local
+    path: Recruit/2026/

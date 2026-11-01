@@ -19,6 +19,9 @@ public enum ErrorCode {
 	/** 조회 대상이 없음 */
 	NOT_FOUND(HttpStatus.NOT_FOUND, null),
 
+	/** 재처리할 단계가 없음: "사람이 확인" 표시가 하나도 없다. 아직 처리 중이거나 이미 끝났다 (D-26) */
+	NOTHING_TO_RETRY(HttpStatus.CONFLICT, null),
+
 	/** 미리 배정한 번호의 행이 일부만 있거나 원본과 다름 (D-16, D-19) */
 	UNEXPECTED_STATE(HttpStatus.INTERNAL_SERVER_ERROR, null),
 

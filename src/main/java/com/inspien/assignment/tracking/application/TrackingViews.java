@@ -8,7 +8,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 
 /**
- * 조회 API 응답의 data (설계서 §5.4). 필드 이름은 camelCase, 시각은 +09:00, 값이 없는 필드는 생략한다.
+ * 조회 API와 재처리 API 응답의 data (설계서 §5.4). 필드 이름은 camelCase, 시각은 +09:00, 값이 없는 필드는 생략한다.
  */
 public final class TrackingViews {
 
@@ -57,6 +57,12 @@ public final class TrackingViews {
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record MessageSummaryView(String messageId, String state, Integer responseStatus,
 			OffsetDateTime receivedAt, String errorCode) {
+	}
+
+	/**
+	 * 재처리 결과: 다시 시작한 단계 (RECEIPT, SHIPMENT).
+	 */
+	public record RetryView(String orderId, List<String> restarted) {
 	}
 
 	/**

@@ -1,5 +1,6 @@
 package com.inspien.assignment.retry.adapter.out.persistence;
 
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
@@ -59,6 +60,18 @@ class JpaStageStore implements StageStore {
 		if (isNew) {
 			this.em.persist(entity);
 		}
+	}
+
+	@Override
+	public boolean restartIfFailed(String orderId, Stage stage) {
+		// 벌크 UPDATE는 엔티티 콜백을 거치지 않으므로 UPDATED_AT을 직접 넣는다 (D-27)
+		return this.em
+			.createQuery("update OrderStageEntity s set s.attempts = 0, s.reachedFailed = false, s.nextAttemptAt = null,"
+					+ " s.updatedAt = :now where s.orderId = :orderId and s.stage = :stage and s.reachedFailed = true")
+			.setParameter("now", OffsetDateTime.now())
+			.setParameter("orderId", orderId)
+			.setParameter("stage", stage.name())
+			.executeUpdate() == 1;
 	}
 
 	private static StageState toModel(OrderStageEntity e) {

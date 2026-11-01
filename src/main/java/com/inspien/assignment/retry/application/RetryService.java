@@ -138,6 +138,27 @@ public class RetryService {
 		return artifact;
 	}
 
+	/**
+	 * 운영자 재처리 (설계서 §5.4, D-26). "사람이 확인" 표시가 있는 단계를 모두 다시 시작한다. H2만 바꾼다.
+	 *
+	 * <p>잠금 없이 조건부 갱신(WHERE REACHED_FAILED = TRUE)으로 한다. 표시를 쓰는 쪽은 스케줄러, 지우는 쪽은 이것뿐이고,
+	 * 스케줄러는 표시된 단계를 고르지 않는다. 건별 실패가 횟수와 표시를 한 트랜잭션으로 쓰므로 반쯤 쓴 상태를 보지 않는다.
+	 * 지우는 것은 재시도 상태뿐이다. 완료 시각과 결과물(특히 미리 배정한 SHIPMENT_ID)을 지우면 결과 불명이던 앞 INSERT와 다른
+	 * 번호로 중복 배송이 생길 수 있다.
+	 *
+	 * @return 다시 시작한 단계. 비어 있으면 표시가 하나도 없었다
+	 */
+	@HistoryTx
+	public List<Stage> restart(String orderId) {
+		List<Stage> restarted = new ArrayList<>();
+		for (Stage stage : Stage.values()) {
+			if (this.store.restartIfFailed(orderId, stage)) {
+				restarted.add(stage);
+			}
+		}
+		return restarted;
+	}
+
 	@HistoryTx(readOnly = true)
 	public Optional<StageState> find(String orderId, Stage stage) {
 		return this.store.find(orderId, stage);

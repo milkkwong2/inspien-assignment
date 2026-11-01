@@ -1,0 +1,37 @@
+# 로컬 개발·테스트 환경 (D-14). 제공 Oracle·FTP는 운영 환경으로 취급하므로(D-11) 시행착오는 여기서 한다.
+# 실행: docker compose up -d   / 초기화: docker compose down -v
+# 여기의 계정과 비밀번호는 로컬 전용 값이라 저장소에 둔다.
+name: inspien-local
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:23.26.3-slim-faststart
+    environment:
+      ORACLE_PASSWORD: local_sys
+      # 초기화 스크립트의 한글 데이터를 깨지지 않게 넣는다
+      NLS_LANG: AMERICAN_AMERICA.AL32UTF8
+    ports:
+      - "1521:1521"
+    volumes:
+      - ./local/oracle/init:/container-entrypoint-initdb.d:ro
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  ftp:
+    build: ./local/ftp
+    environment:
+      FTP_USER: recruit
+      FTP_PASSWORD: recruit_local
+      FTP_UPLOAD_PATH: Recruit/2026
+      PASV_ADDRESS: 127.0.0.1
+    ports:
+      - "2121:21"
+      - "21100-21110:21100-21110"
+
+volumes:
+  oracle-data:

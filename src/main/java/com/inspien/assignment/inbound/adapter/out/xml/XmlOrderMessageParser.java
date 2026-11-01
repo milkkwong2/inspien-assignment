@@ -18,6 +18,7 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.inspien.assignment.global.config.AppProperties;
@@ -44,6 +45,7 @@ class XmlOrderMessageParser implements OrderMessageParser {
 
 	private final DocumentBuilderFactory factory;
 
+	@Autowired
 	XmlOrderMessageParser(AppProperties properties) {
 		this(properties.inbound().defaultCharset());
 	}

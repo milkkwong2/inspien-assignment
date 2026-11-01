@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties("app")
 public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db shipmentDb, HistoryDb historyDb,
-		Ftp ftp) {
+		Ftp ftp, Inbound inbound) {
 
 	public AppProperties {
 		if (applicant == null) {
@@ -63,6 +63,20 @@ public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db s
 	 * @param path H2 파일 경로 (확장자 제외)
 	 */
 	public record HistoryDb(String path) {
+	}
+
+	/**
+	 * IF-01 수신 설정 (설계서 §9).
+	 *
+	 * @param defaultCharset 본문에 인코딩 표시가 없을 때 (D-20)
+	 * @param duplicateWindow 완료된 메시지와 같은 본문을 같은 메시지로 보는 시간 (D-24)
+	 * @param lockStripes 수신 잠금 수 (D-16)
+	 * @param lockWait 수신 잠금 대기 상한 (D-16)
+	 * @param dbCharset ORDER_TB 값 길이를 바이트로 셀 때의 문자셋 (D-07, 설계서 §11)
+	 * @param maxValueBytes ORDER_TB 컬럼 최대 바이트 수 (VARCHAR2(100))
+	 */
+	public record Inbound(String defaultCharset, Duration duplicateWindow, int lockStripes, Duration lockWait,
+			String dbCharset, int maxValueBytes) {
 	}
 
 	public record Ftp(String host, int port, String username, String password, String path) {

@@ -22,6 +22,16 @@ app:
     pool-size: 2
   history-db:
     path: ./data/history
+  inbound:
+    # 송신자는 인코딩을 밝히지 않고 EUC-KR로 보낸다. EUC-KR 계열은 MS949로 읽는다 (D-20)
+    default-charset: EUC-KR
+    duplicate-window: 1m
+    lock-stripes: 16
+    # 평소 처리(1초 미만)보다 충분히 길게. 넘으면 503 BUSY로 재전송을 받는다 (D-16, D-19)
+    lock-wait: 10s
+    # VARCHAR2(100)의 길이 단위·DB 문자셋은 제공 환경 확인 전까지 바이트·UTF-8로 가정한다 (설계서 §11)
+    db-charset: UTF-8
+    max-value-bytes: 100
 
 logging:
   pattern:

@@ -81,6 +81,20 @@ class ArchitectureTest {
 		.allowEmptyShould(true);
 
 	/**
+	 * Oracle 어댑터는 네이티브 SQL을 쓰지 않는다. @TenantId의 APPLICANT_KEY 조건은 JPQL·QueryDSL에만 붙는다 (D-01, D-25).
+	 */
+	@ArchTest
+	static final ArchRule oracleAdaptersDoNotUseNativeSql = noClasses().that()
+		.resideInAnyPackage(ROOT + ".order..", ROOT + ".shipment..")
+		.should()
+		.callMethodWhere(com.tngtech.archunit.base.DescribedPredicate.describe("createNativeQuery",
+				(com.tngtech.archunit.core.domain.JavaMethodCall call) -> call.getName().startsWith("createNative")))
+		.orShould()
+		.dependOnClassesThat()
+		.resideInAPackage("org.springframework.jdbc..")
+		.allowEmptyShould(true);
+
+	/**
 	 * DB가 셋이고 기본 트랜잭션 매니저가 없으므로 이름 없는 @Transactional을 쓰지 않는다 (D-19).
 	 */
 	@ArchTest

@@ -34,6 +34,7 @@
 | D-22 | 주변 장애는 기존 경로로: 시작 동기화 실패는 기동 실패, H2 기록 없는 주문은 바로 `*_FAILED`, 우리 쪽 저장소 장애는 횟수 없이 주기 종료, 연결 실패 이벤트는 상태가 바뀔 때만. "주문 실패"는 "건별 실패"로 (D-08·D-10·D-13 보완) | 빈틈마다 새 장치를 만들지 않는다. 모르는 값은 지어내지 않고 사람에게 넘긴다 | 처음 채번할 때 동기화, 빈 수신일시로 영수증, 매 주기 이벤트 |
 | D-23 | `APPLICANT_KEY`와 지원자 실명은 `config/`(Git 제외)에서 그대로 읽는다. 없으면 기동 실패. 다른 PC에는 `config/`를 복사 | 키는 접속 정보와 한 묶음인 환경 설정이고, 실명은 개인정보다. 과제 API 재호출 시 같은 응답임을 확인했다 | `application.yml`에 직접, 환경 변수 |
 | D-24 | 중복 판단 시간 창은 완료된 메시지에만, 완료 후 1분. 실패(`400` 제외)·처리 중 메시지는 시간과 관계없이 이어서 처리 (D-15·D-16·D-17 변경) | 재전송과 새 주문의 처리가 갈리는 것은 완료된 메시지뿐이다. 실패한 메시지는 어느 쪽이든 "한 번 저장"이 맞다 | 모든 상태에 1분, 10분 유지, 첫 수신부터 세기 |
+| D-25 | 로컬 검증 결과 반영: `APPLICANT_KEY`는 `@TenantId`로 강제(네이티브 SQL 금지), Oracle 오류는 원인 사슬 전체로 연결·자원 계열을 판정 (D-01·D-17 보완) | 실제 동작을 확인한 방법만 쓴다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어써 예외 타입 하나로는 나눌 수 없다 | QueryDSL 공통 조건, Spring 예외 계층만으로 판정 |
 
 ### 결정 지도
 
@@ -47,6 +48,7 @@ mindmap
       D-02 DataSource 분리
       D-19 트랜잭션·타임아웃
       D-21 패키지와 의존 구조
+      D-25 TenantId와 오류 판정 검증
     정합성
       D-03 멱등성과 상태 재처리
       D-06 순차 상태 전이
@@ -136,7 +138,7 @@ flowchart LR
 
 ### D-01. DB 접근: Spring Data JPA + QueryDSL (OpenFeign 포크)
 
-- **상태:** 결정 (2026-10-30)
+- **상태:** 결정 (2026-10-30). **2026-11-01 D-25로 보완:** `@TenantId`가 복합 PK 구성 컬럼에서 동작함을 확인했다. `APPLICANT_KEY`는 `@TenantId`로 강제한다.
 - **의존성:** `spring-boot-starter-data-jpa`, `io.github.openfeign.querydsl` (jpa 모듈 + annotation processor). 기존 `spring-boot-starter-jdbc`를 대체한다.
 
 **배경.** 과제 DB는 지원자 공용 계정으로 보인다 (requirements §4.1). 모든 조회·수정에 `APPLICANT_KEY = 내 키` 조건이 들어가야 하는데, DELETE 권한이 없어서 실수로 남의 행을 건드리면 되돌릴 수 없다.
@@ -738,7 +740,7 @@ FTP 목록에서 이 주문의 파일(기본 이름과 _rN)을 찾는다
 
 ### D-17. 수신 응답 계약: 송신자가 할 일로 코드를 나눈다 (D-04 변경)
 
-- **상태:** 결정 (2026-10-31). Q-14 해소. **같은 날 D-18로 보완:** 오류 본문의 필드 이름과 형태를 정한다. **2026-11-01 D-24로 변경:** "응답 없음은 10분 안에 재전송"은 "곧바로(1분 안에) 재전송"으로, `503` 뒤 재전송에는 시간 제한이 없다. **2026-11-01 보완:** "Oracle 저장 실패"를 원인으로 나눈다. 연결·자원 계열만 `503`이고, Oracle이 거절한 오류는 `500` + `ORDER_DB_REJECTED`다.
+- **상태:** 결정 (2026-10-31). Q-14 해소. **같은 날 D-18로 보완:** 오류 본문의 필드 이름과 형태를 정한다. **2026-11-01 D-24로 변경:** "응답 없음은 10분 안에 재전송"은 "곧바로(1분 안에) 재전송"으로, `503` 뒤 재전송에는 시간 제한이 없다. **2026-11-01 보완:** "Oracle 저장 실패"를 원인으로 나눈다. 연결·자원 계열만 `503`이고, Oracle이 거절한 오류는 `500` + `ORDER_DB_REJECTED`다. **같은 날 D-25로 보완:** 연결·자원 계열의 판정 기준을 로컬 검증 결과로 정한다.
 - **문제:** D-04의 계약은 "`200` = 저장됨, 그 외 = 저장 안 됨, 재전송하라"였다. 그런데 파싱 실패(`400`)와 예상 밖 상태(`500`)는 바이트도 상태도 그대로라 재전송해도 같은 결과다. D-07의 "다시 보내도 또 거부되면 재전송을 유도하지 않는다"와도 어긋난다. 채번 소진은 응답 코드가 정해지지 않았다.
 
 **원칙.** HTTP 의미를 그대로 따른다. 4xx는 보낸 쪽이 고쳐야 하는 문제, 5xx는 받는 쪽 문제다. 5xx 중 재전송으로 풀리는 것은 `503`뿐이다.
@@ -1314,6 +1316,54 @@ com.inspien.assignment
 | 10분 유지 | 정상 재주문이 10분 동안 막힌다. 길게 둔 이유였던 늦은 재전송은 상태로 나누면 시간 없이 해결된다 |
 | 첫 수신 시각부터 세기 (D-15) | 실패 뒤 늦게 완료한 메시지는 완료하자마자 창이 지나 있다 |
 | `400` 실패도 이어서 처리 | 같은 바이트는 같은 결과라 얻는 것이 없고, charset 헤더만 고친 재전송을 막는다 |
+
+### D-25. 로컬 검증 결과 반영: `@TenantId`와 Oracle 오류 판정 (D-01·D-17 보완)
+
+- **상태:** 결정 (2026-11-01). 설계서 §11의 "구현하며 로컬에서 확인할 것" 두 항목을 해소한다.
+- **방법:** 운영과 같은 조건(앱 계정 권한 SELECT·INSERT·UPDATE, 다른 지원자의 행이 든 공용 테이블)의 로컬 Oracle 컨테이너(D-14)에서 확인했다. 확인한 내용은 회귀 테스트로 남겼다 (`verification` 패키지).
+
+**1. `@TenantId`는 복합 PK 구성 컬럼에서도 동작한다.**
+
+| 확인한 것 | 결과 |
+|---|---|
+| JPQL·QueryDSL 조회 (`count`, `max`) | `WHERE APPLICANT_KEY = ?`가 붙는다. 다른 지원자의 행은 보이지 않는다 |
+| `persist` | `APPLICANT_KEY`를 비워 둬도 내 키로 채워진다 |
+| 벌크 UPDATE | `WHERE ... AND APPLICANT_KEY = ?`가 붙는다. 다른 지원자의 같은 `ORDER_ID`(`A001`)는 바뀌지 않는다 |
+| PK 조회(`find`) | 다른 지원자의 키를 넣어도 찾지 못한다 |
+| 네이티브 SQL | 조건이 붙지 않는다 |
+
+- **결정:** 두 Oracle 엔티티 매니저에 고정 테넌트(내 `APPLICANT_KEY`)를 설정하고, 엔티티의 `APPLICANT_KEY`에 `@TenantId`를 붙인다. D-01의 대안(QueryDSL 공통 조건)은 쓰지 않는다. 조건을 붙이는 곳이 어댑터 코드가 아니라 매핑 한 곳이 되어, 새 쿼리를 추가해도 빠뜨릴 수 없다.
+- **지킬 것:** Oracle 어댑터(`order`, `shipment`)는 네이티브 SQL과 `JdbcTemplate`을 쓰지 않는다. ArchUnit 테스트로 강제한다.
+
+**2. Oracle 오류는 원인 사슬 전체로 판정한다.**
+
+| 상황 | 트랜잭션 안(어댑터) | 트랜잭션 밖(서비스) | 판정 |
+|---|---|---|---|
+| 값 길이 초과 `ORA-12899` | `JpaSystemException` | 같음 | 거절 |
+| 권한 없음 `ORA-41900` | `JpaSystemException` | 같음 | 거절 |
+| PK 충돌 `ORA-00001` (flush 때·커밋 때 모두) | `DataIntegrityViolationException` | 같음 | 거절 (수신·배송은 그 전에 "다시 조회해 비교", D-19) |
+| 응답 시간 초과 (쿼리 중) | `DataAccessResourceFailureException` (`SQLRecoverableException`, `08006`) | `JpaSystemException` ← hibernate `TransactionException` "Connection is closed" | 연결·자원 |
+| 커밋 중 시간 초과 (결과 불명) | — | `RecoverableDataAccessException` (`08006`) | 연결·자원 |
+| 풀 연결 대기 초과 | — | `CannotCreateTransactionException` | 연결·자원 |
+| 접속 거부 | — | `CannotCreateTransactionException` | 연결·자원 |
+
+- **설계 가정과 달랐던 것.**
+  - `ORA-12899`(길이 초과)는 무결성 위반이 아니라 `JpaSystemException`으로 나온다. "연결·자원 계열이 아니면 거절"로 판정하므로 결과(`500 ORDER_DB_REJECTED`)는 같다.
+  - **연결이 끊기면 롤백도 실패해, 트랜잭션 밖에서는 원래 예외 대신 롤백 예외가 보인다** ("Application exception overridden by rollback exception"). 이 롤백 예외는 `JpaSystemException`이라 `ORA-12899`와 타입이 같다. 예외 타입 하나로는 둘을 나눌 수 없다.
+  - DB가 내려가 접속이 거부되면 접속 타임아웃(3초)이 아니라 풀 연결 대기 상한(5초) 뒤에 실패가 나온다. 풀이 그동안 다시 접속을 시도하기 때문이다.
+- **결정:** `DbFailures.isConnectionOrResource`가 원인 사슬 전체에서 아래 중 하나라도 있으면 연결·자원 계열로 본다. 나머지는 거절이다.
+  - Spring: `CannotCreateTransactionException`, `DataAccessResourceFailureException`, `RecoverableDataAccessException`, `TransientDataAccessResourceException`, `QueryTimeoutException`
+  - Hibernate `TransactionException` (끊긴 연결에서 롤백·커밋이 실패한 흔적)
+  - JDBC: `SQLRecoverableException`, `SQLTransientConnectionException`, `SQLNonTransientConnectionException`, SQLState `08xxx`, 소켓 시간 초과·접속 실패
+- 수신의 `503`/`500` 구분(D-17)과 스케줄러의 연결 실패/건별 실패 구분(D-10, D-22)이 같은 판정을 쓴다.
+
+**고르지 않은 것.**
+
+| 방법 | 고르지 않은 이유 |
+|---|---|
+| QueryDSL 공통 조건으로 `APPLICANT_KEY` 강제 | `@TenantId`가 동작하므로 필요 없다. 쿼리마다 공통 조건을 거쳐야 해서 빠뜨릴 여지가 남는다 |
+| Spring 예외 계층(`TransientDataAccessException` 등)만으로 판정 | 연결이 끊긴 경우 밖에서 보이는 예외가 `JpaSystemException`이라 거절로 잘못 분류된다. 그러면 결과 불명인 요청에 재전송하지 말라고(`500`) 답하게 된다 |
+| 트랜잭션 안에서 원래 예외를 잡아 따로 넘기기 | 트랜잭션 경계마다 같은 처리를 넣어야 하고, 커밋 시점 예외는 어차피 밖에서만 보인다 |
 
 ## 쟁점 이력
 

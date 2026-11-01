@@ -34,4 +34,22 @@ public final class LocalOracle {
 		return CONTAINER.getJdbcUrl();
 	}
 
+	/**
+	 * 컨테이너를 일시 정지해 응답 없는 DB를 흉내 낸다. 반드시 {@link #unpause()}로 되돌린다.
+	 */
+	public static void pause() {
+		CONTAINER.getDockerClient().pauseContainerCmd(CONTAINER.getContainerId()).exec();
+	}
+
+	public static synchronized void unpause() {
+		Boolean paused = CONTAINER.getDockerClient()
+			.inspectContainerCmd(CONTAINER.getContainerId())
+			.exec()
+			.getState()
+			.getPaused();
+		if (Boolean.TRUE.equals(paused)) {
+			CONTAINER.getDockerClient().unpauseContainerCmd(CONTAINER.getContainerId()).exec();
+		}
+	}
+
 }

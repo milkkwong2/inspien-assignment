@@ -6,6 +6,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.hibernate.context.spi.CurrentTenantIdentifierResolver;
 
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -48,6 +49,38 @@ final class JpaSupport {
 		properties.put("hibernate.hbm2ddl.auto", "none");
 		factory.setJpaPropertyMap(properties);
 		return factory;
+	}
+
+	/**
+	 * 공용 테이블(Oracle)용 엔티티 매니저. 엔티티의 @TenantId 컬럼(APPLICANT_KEY)에 내 지원자 키를 쓴다.
+	 *
+	 * <p>Hibernate가 모든 JPQL·QueryDSL 조회와 벌크 갱신, PK 조회의 WHERE에 APPLICANT_KEY 조건을 붙이고, 저장할 때 값을
+	 * 채운다. 복합 PK 구성 컬럼에서도 동작함을 로컬 Oracle에서 확인했다 (D-01, D-25). 네이티브 SQL에는 붙지 않으므로
+	 * Oracle 어댑터는 네이티브 SQL을 쓰지 않는다 (ArchitectureTest).
+	 */
+	static LocalContainerEntityManagerFactoryBean sharedTableEntityManagerFactory(String unitName,
+			DataSource dataSource, String applicantKey, String... packagesToScan) {
+		LocalContainerEntityManagerFactoryBean factory = entityManagerFactory(unitName, dataSource, packagesToScan);
+		factory.getJpaPropertyMap()
+			.put("hibernate.tenant_identifier_resolver", new FixedTenantResolver(applicantKey));
+		return factory;
+	}
+
+	/**
+	 * 앱 하나가 지원자 하나를 대신하므로 테넌트는 고정이다.
+	 */
+	record FixedTenantResolver(String applicantKey) implements CurrentTenantIdentifierResolver<String> {
+
+		@Override
+		public String resolveCurrentTenantIdentifier() {
+			return this.applicantKey;
+		}
+
+		@Override
+		public boolean validateExistingCurrentSessions() {
+			return false;
+		}
+
 	}
 
 }

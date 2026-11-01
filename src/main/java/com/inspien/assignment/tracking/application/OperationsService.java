@@ -6,10 +6,9 @@ import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.global.error.ApiException;
 import com.inspien.assignment.global.error.ErrorCode;
-import com.inspien.assignment.global.event.ProcessEvent;
-import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.retry.application.RetryService;
+import com.inspien.assignment.retry.application.StageEvents;
 import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.tracking.application.TrackingViews.RetryView;
 
@@ -27,12 +26,12 @@ public class OperationsService {
 
 	private final RetryService retry;
 
-	private final ProcessEvents events;
+	private final StageEvents stageEvents;
 
-	public OperationsService(OrderService orders, RetryService retry, ProcessEvents events) {
+	public OperationsService(OrderService orders, RetryService retry, StageEvents stageEvents) {
 		this.orders = orders;
 		this.retry = retry;
-		this.events = events;
+		this.stageEvents = stageEvents;
 	}
 
 	public RetryView retry(String orderId) {
@@ -45,17 +44,9 @@ public class OperationsService {
 					"다시 시작할 단계가 없습니다. FAILED인 단계만 재처리합니다 (처리 중이거나 이미 끝남): " + orderId);
 		}
 		for (Stage stage : restarted) {
-			this.events.publish(null, orderId, eventStage(stage), ProcessEvent.Result.OPERATOR_RESET,
-					"운영자 재처리: 표시 해제, 횟수 0부터 다시 처리");
+			this.stageEvents.operatorReset(orderId, stage);
 		}
 		return new RetryView(orderId, restarted.stream().map(Stage::name).toList());
-	}
-
-	private static ProcessEvent.Stage eventStage(Stage stage) {
-		return switch (stage) {
-			case RECEIPT -> ProcessEvent.Stage.RECEIPT;
-			case SHIPMENT -> ProcessEvent.Stage.SHIPMENT;
-		};
 	}
 
 }

@@ -1,8 +1,5 @@
 package com.inspien.assignment.shipment.application;
 
-import java.time.Clock;
-import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +23,7 @@ import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.retry.application.ConnectionWatch;
 import com.inspien.assignment.retry.application.RetryService;
+import com.inspien.assignment.retry.application.StageEvents;
 import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.shipment.domain.Shipment;
 
@@ -60,21 +58,21 @@ public class ShipmentService {
 
 	private final ProcessEvents events;
 
-	private final Clock clock;
+	private final StageEvents stageEvents;
 
 	private final int batchSize;
 
 	private final ConnectionWatch shipmentDb;
 
 	ShipmentService(OrderService orders, InboundQueryService inbound, RetryService retry, NumberingService numbering,
-			ShipmentRegistry registry, ProcessEvents events, Clock clock, AppProperties properties) {
+			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.retry = retry;
 		this.numbering = numbering;
 		this.registry = registry;
 		this.events = events;
-		this.clock = clock;
+		this.stageEvents = stageEvents;
 		this.batchSize = properties.scheduler().batchSize();
 		this.shipmentDb = new ConnectionWatch("운송회사 DB", STAGE, events);
 	}
@@ -186,8 +184,7 @@ public class ShipmentService {
 		}
 		// 다시 해도 결과가 같으므로 재시도 없이 사람에게 넘긴다
 		this.retry.markFailed(shipment.orderId(), STAGE, error);
-		this.events.publish(null, shipment.orderId(), ProcessEvent.Stage.SHIPMENT, Result.FAIL,
-				"배송 FAILED (사람이 확인): " + error);
+		this.stageEvents.failedWithoutRetry(shipment.orderId(), STAGE, error);
 		return true;
 	}
 
@@ -198,23 +195,12 @@ public class ShipmentService {
 	}
 
 	private void orderFailed(String orderId, String error) {
-		RetryService.Failure failure = this.retry.recordFailure(orderId, STAGE, error);
-		if (!failure.exhausted()) {
-			this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.FAIL,
-					"%d회째 실패, 다음 시도 %s: %s".formatted(failure.attempts(),
-							LocalTime.ofInstant(failure.nextAttemptAt(), this.clock.getZone())
-								.truncatedTo(ChronoUnit.SECONDS),
-							error));
-			return;
-		}
-		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.FAIL,
-				failure.attempts() + "회째 실패, 배송 FAILED (사람이 확인): " + error);
+		this.stageEvents.failed(orderId, STAGE, this.retry.recordFailure(orderId, STAGE, error), error);
 	}
 
 	private void missingRecord(String orderId) {
 		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
-		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, Result.MISSING_RECORD,
-				"H2에 수신 기록이 없어 배송 FAILED. 주문번호 " + orderId);
+		this.stageEvents.missingRecord(orderId, STAGE);
 	}
 
 	private static String rootMessage(Throwable ex) {

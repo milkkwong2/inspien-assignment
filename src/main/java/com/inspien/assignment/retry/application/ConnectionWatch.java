@@ -36,7 +36,7 @@ public class ConnectionWatch {
 	public void failed(Exception cause) {
 		log.error("{} 연결 실패: 이번 주기를 건너뜁니다 ({}회째)", this.target, this.skippedCycles + 1, cause);
 		if (!this.down) {
-			this.events.publish(null, null, RetryService.eventStage(this.stage), ProcessEvent.Result.CYCLE_SKIPPED,
+			this.events.publish(null, null, StageEvents.of(this.stage), ProcessEvent.Result.CYCLE_SKIPPED,
 					this.target + " 연결 실패, 복구될 때까지 주기를 건너뜀: " + cause.getMessage());
 		}
 		this.down = true;
@@ -45,7 +45,7 @@ public class ConnectionWatch {
 
 	public void connected() {
 		if (this.down) {
-			this.events.publish(null, null, RetryService.eventStage(this.stage),
+			this.events.publish(null, null, StageEvents.of(this.stage),
 					ProcessEvent.Result.CONNECTION_RECOVERED,
 					this.target + " 연결 복구 (건너뛴 주기 " + this.skippedCycles + "회)");
 			log.info("{} 연결 복구 (건너뛴 주기 {}회)", this.target, this.skippedCycles);

@@ -3,8 +3,6 @@ package com.inspien.assignment.receipt.application;
 import java.nio.charset.Charset;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +27,7 @@ import com.inspien.assignment.receipt.domain.Receipt;
 import com.inspien.assignment.receipt.domain.UploadPlan;
 import com.inspien.assignment.retry.application.ConnectionWatch;
 import com.inspien.assignment.retry.application.RetryService;
+import com.inspien.assignment.retry.application.StageEvents;
 import com.inspien.assignment.retry.domain.Stage;
 
 /**
@@ -59,6 +58,8 @@ public class ReceiptService {
 
 	private final ProcessEvents events;
 
+	private final StageEvents stageEvents;
+
 	private final Clock clock;
 
 	private final String applicantName;
@@ -72,12 +73,13 @@ public class ReceiptService {
 	private final ConnectionWatch ftp;
 
 	public ReceiptService(OrderService orders, InboundQueryService inbound, RetryService retry,
-			ReceiptUploader uploader, ProcessEvents events, Clock clock, AppProperties properties) {
+			ReceiptUploader uploader, ProcessEvents events, StageEvents stageEvents, Clock clock, AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.retry = retry;
 		this.uploader = uploader;
 		this.events = events;
+		this.stageEvents = stageEvents;
 		this.clock = clock;
 		this.applicantName = properties.applicant().name();
 		this.contentCharset = Charset.forName(properties.receipt().contentCharset());
@@ -182,16 +184,7 @@ public class ReceiptService {
 	}
 
 	private void orderFailed(String orderId, String error) {
-		RetryService.Failure failure = this.retry.recordFailure(orderId, STAGE, error);
-		if (!failure.exhausted()) {
-			this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.FAIL, "%d회째 실패, 다음 시도 %s: %s".formatted(
-					failure.attempts(), LocalTime.ofInstant(failure.nextAttemptAt(), this.clock.getZone())
-						.truncatedTo(ChronoUnit.SECONDS),
-					error));
-			return;
-		}
-		this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.FAIL,
-				failure.attempts() + "회째 실패, 영수증 FAILED (사람이 확인): " + error);
+		this.stageEvents.failed(orderId, STAGE, this.retry.recordFailure(orderId, STAGE, error), error);
 	}
 
 	/**
@@ -199,8 +192,7 @@ public class ReceiptService {
 	 */
 	private void missingRecord(String orderId) {
 		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
-		this.events.publish(null, orderId, ProcessEvent.Stage.RECEIPT, Result.MISSING_RECORD,
-				"H2에 수신 기록이 없어 영수증 FAILED. 주문번호 " + orderId);
+		this.stageEvents.missingRecord(orderId, STAGE);
 	}
 
 }

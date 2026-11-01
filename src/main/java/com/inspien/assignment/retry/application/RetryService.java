@@ -13,7 +13,6 @@ import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.global.config.AppProperties;
-import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.transaction.HistoryTx;
 import com.inspien.assignment.retry.application.port.StageStore;
 import com.inspien.assignment.retry.domain.RetryPolicy;
@@ -174,13 +173,6 @@ public class RetryService {
 			byStage.put(stage, this.store.findAll(orderIds, stage));
 		}
 		return byStage;
-	}
-
-	static ProcessEvent.Stage eventStage(Stage stage) {
-		return switch (stage) {
-			case RECEIPT -> ProcessEvent.Stage.RECEIPT;
-			case SHIPMENT -> ProcessEvent.Stage.SHIPMENT;
-		};
 	}
 
 	private StageState current(String orderId, Stage stage) {

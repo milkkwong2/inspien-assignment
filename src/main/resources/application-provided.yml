@@ -11,6 +11,9 @@ spring:
       - file:${app.provided-config-dir:./config}/connection.json[.yaml]
 
 app:
+  # 로컬 리허설의 H2와 섞이지 않게 나눈다. 중복 판단 정보가 들어 있으니 지우거나 옮기지 않는다 (설계서 §4.2)
+  history-db:
+    path: ./data/provided/history
   applicant:
     key: ${APPLICANT_KEY}
   order-db:

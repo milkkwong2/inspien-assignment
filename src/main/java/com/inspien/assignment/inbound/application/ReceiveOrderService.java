@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +84,7 @@ public class ReceiveOrderService {
 	}
 
 	public ReceiveResult receive(byte[] body, String contentType) {
-		Instant arrivedAt = this.clock.instant();
+		Instant arrivedAt = this.clock.instant().truncatedTo(ChronoUnit.MILLIS);
 		MessageKey key = MessageKey.of(body);
 		if (!this.locks.tryLock(key)) {
 			throw new ApiException(ErrorCode.BUSY, "같은 본문을 처리하는 중입니다. 잠시 후 같은 본문을 다시 보내 주세요.");

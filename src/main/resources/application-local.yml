@@ -12,6 +12,9 @@ app:
     url: jdbc:oracle:thin:@localhost:1521/FREEPDB1
     username: applicant
     password: applicant_local
+  # 제공 환경과 H2를 나눈다. 같은 파일을 쓰면 로컬 리허설의 수신 기록·채번이 제공 환경 실행에 섞인다
+  history-db:
+    path: ./data/local/history
   ftp:
     host: localhost
     port: 2121

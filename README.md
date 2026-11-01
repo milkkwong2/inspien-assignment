@@ -1,9 +1,43 @@
 # inspien-assignment
 
 인스피언 코딩테스트 과제: 서비스(REST API) 연계 및 데이터 변환 처리.
-요구사항 정리는 [docs/requirements.md](docs/requirements.md)를 참고한다.
 
-- Java 25, Spring Boot 4.1, Gradle (Wrapper 포함)
+- 요구사항: [docs/requirements.md](docs/requirements.md)
+- 설계서: [docs/design.md](docs/design.md), 결정 기록: [docs/decisions.md](docs/decisions.md)
+- Java 25, Spring Boot 4.1, Spring Data JPA + QueryDSL, H2(처리 이력), Gradle (Wrapper 포함)
+
+| 인터페이스 | 방식 | 소스 → 타깃 |
+|---|---|---|
+| IF-01 주문 수신 | `POST /orders` (XML 본문) | 주문 XML → 쇼핑몰 DB `ORDER_TB` |
+| IF-02 영수증 전송 | 스케줄러 30초 | `ORDER_TB` → FTP 영수증 CSV |
+| IF-03 배송 연계 | 스케줄러 30초 | `ORDER_TB` → 운송회사 DB `SHIPMENT_TB` |
+| IF-04 처리 추적 | `GET /tracking/...` | H2 이력 + `ORDER_TB.STATUS` |
+
+## 실행
+
+프로필로 접속 대상을 고른다. 프로필 없이 실행하면 지원자 키·이름이 없어 기동하지 않는다.
+
+```bash
+# 로컬 컨테이너 대상 (아래 2절)
+./gradlew bootRun --args="--spring.profiles.active=local"
+
+# 과제 제공 환경 대상 (운영으로 취급, config/ 필요)
+./gradlew bootRun --args="--spring.profiles.active=provided"
+```
+
+```bash
+# 주문 수신 (송신자처럼 인코딩 표시 없이 EUC-KR로)
+curl -X POST http://localhost:8080/orders -H "Content-Type: application/xml" --data-binary @order.xml
+
+# 처리 추적
+curl http://localhost:8080/tracking/orders/A001
+curl "http://localhost:8080/tracking/orders?status=RECEIPT_FAILED"
+curl http://localhost:8080/tracking/messages/{messageId}
+curl "http://localhost:8080/tracking/messages?state=FAILED"
+```
+
+- 막힌 주문(`RECEIPT_FAILED`, `SHIPMENT_FAILED`)은 원인을 고친 뒤 운영자가 Oracle `STATUS`를 앞 상태(`RECEIVED`, `RECEIPT_SENT`)로 되돌리면 앱이 감지해 횟수 0부터 다시 처리한다.
+- 처리 이력 H2는 프로필별 `data/local/`, `data/provided/`에 있다. 중복 판단 정보가 들어 있으니 앱 실행 중 복사하거나 지우지 않는다.
 
 ## 1. 접속 정보 받기 (최초 1회)
 
@@ -59,10 +93,21 @@ docker compose down -v    # 데이터까지 지우고 처음 상태로
 - 계정과 비밀번호는 [compose.yaml](compose.yaml)과 [local/oracle/init](local/oracle/init)에 있다. 로컬 전용 값이라 저장소에 둔다.
 - 다른 지원자 행: `OTHER-APPLICANT-1`(내 번호와 겹치는 `A001`~), `OTHER-APPLICANT-2`(`RECEIVED` 150건, 스케줄러 한 주기 처리 건수보다 많음).
 
+로컬 리허설(2026-11-01): 과제 샘플을 보내 저장 63·거부 7·경고 4, 다음 주기들에서 영수증 63개와 배송 63건, 모두 `SHIPPED`를 확인했다. 다른 지원자의 행은 바뀌지 않았다.
+
 ## 3. 테스트
 
 ```bash
 ./gradlew test
 ```
 
-실제 과제 API는 호출하지 않는다. 가짜 데이터와 로컬 HTTP 서버로 검증한다.
+Docker가 필요하다. 통합 테스트는 로컬 환경과 같은 Oracle·vsftpd 이미지를 Testcontainers로 띄운다. 제공 환경과 과제 API에는 접속하지 않는다.
+
+| 테스트 | 확인하는 것 |
+|---|---|
+| `ArchitectureTest` | 패키지 의존 규칙, 순환 금지, Oracle 어댑터의 네이티브 SQL 금지 (D-21) |
+| `verification` 패키지 | `@TenantId`와 복합 PK, Oracle 오류 분류 (D-25). DB 일시 정지로 응답 없음·커밋 중 타임아웃 재현 |
+| `ReceiveOrderIntegrationTest` | 재전송, 1분 창, 장애 뒤 이어서 처리, 결과 불명, PK 충돌, 동시 재전송 (D-15·16·24) |
+| `ReceiptFlowIntegrationTest`, `ShipmentFlowIntegrationTest` | 연결 실패와 건별 실패 구분, 백오프, 운영자 되돌림, 중단 복구, 늦은 커밋 (D-03·10·22) |
+| `FtpReceiptUploaderTest` | 한글 파일명, 바이너리 크기, 덮어쓰기 거부 |
+| `ProvidedSampleTest` | 과제 샘플로 저장 63·거부 7·경고 4 (`config/sample-order.xml`이 있을 때만) |

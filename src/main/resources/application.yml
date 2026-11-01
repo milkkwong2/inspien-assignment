@@ -7,6 +7,12 @@ spring:
     name: inspien-assignment
   jpa:
     open-in-view: false
+  task:
+    scheduling:
+      # 영수증·배송 스케줄러가 한 스레드에서 차례로 돈다 (D-12)
+      pool:
+        size: 1
+      thread-name-prefix: scheduler-
 
 app:
   oracle:
@@ -32,6 +38,24 @@ app:
     # VARCHAR2(100)의 길이 단위·DB 문자셋은 제공 환경 확인 전까지 바이트·UTF-8로 가정한다 (설계서 §11)
     db-charset: UTF-8
     max-value-bytes: 100
+  ftp:
+    connect-timeout: 5s
+    command-timeout: 30s
+    data-timeout: 30s
+    # 한글 파일명 인코딩은 제공 환경 확인 전까지 UTF-8로 가정한다 (설계서 §11)
+    filename-encoding: UTF-8
+  scheduler:
+    enabled: true
+    # 가장 짧은 백오프(1분)보다 짧아야 백오프가 의도대로 동작한다 (D-12)
+    fixed-delay: 30s
+    batch-size: 100
+  retry:
+    max-attempts: 5
+    initial-backoff: 1m
+    multiplier: 2
+  receipt:
+    content-charset: UTF-8
+    bom: true
 
 logging:
   pattern:

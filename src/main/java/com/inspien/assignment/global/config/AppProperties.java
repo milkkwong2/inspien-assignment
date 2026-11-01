@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties("app")
 public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db shipmentDb, HistoryDb historyDb,
-		Ftp ftp, Inbound inbound) {
+		Ftp ftp, Inbound inbound, Scheduler scheduler, Retry retry, Receipt receipt) {
 
 	public AppProperties {
 		if (applicant == null) {
@@ -79,7 +79,13 @@ public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db s
 			String dbCharset, int maxValueBytes) {
 	}
 
-	public record Ftp(String host, int port, String username, String password, String path) {
+	/**
+	 * FTP (회계팀 영수증). 타임아웃은 상대가 응답 없이 멈췄을 때 실패로 바꾸려고 둔다 (D-12, D-19).
+	 *
+	 * @param filenameEncoding 제어 연결 인코딩(한글 파일명). 제공 환경 확인 후 정한다 (설계서 §11)
+	 */
+	public record Ftp(String host, int port, String username, String password, String path, Duration connectTimeout,
+			Duration commandTimeout, Duration dataTimeout, String filenameEncoding) {
 
 		@Override
 		public String toString() {
@@ -87,6 +93,33 @@ public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db s
 					+ ", password=****, path=" + this.path + "]";
 		}
 
+	}
+
+	/**
+	 * 영수증·배송 스케줄러 (D-12).
+	 *
+	 * @param enabled 스케줄러 실행 여부 (테스트에서 끈다)
+	 * @param fixedDelay 주기. 가장 짧은 재시도 간격보다 짧아야 한다
+	 * @param batchSize 한 주기 최대 처리 건수
+	 */
+	public record Scheduler(boolean enabled, Duration fixedDelay, int batchSize) {
+	}
+
+	/**
+	 * 건별 실패 재시도 (D-10). 대기는 initialBackoff × multiplier^(n-1): 1·2·4·8분.
+	 *
+	 * @param maxAttempts 첫 시도 포함 최대 시도 횟수
+	 */
+	public record Retry(int maxAttempts, Duration initialBackoff, int multiplier) {
+	}
+
+	/**
+	 * 영수증 CSV (D-09).
+	 *
+	 * @param contentCharset 내용 인코딩
+	 * @param bom BOM을 붙일지. 없으면 한국어 엑셀이 CP949로 읽어 한글이 깨진다
+	 */
+	public record Receipt(String contentCharset, boolean bom) {
 	}
 
 }

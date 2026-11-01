@@ -122,19 +122,27 @@ public class ShipmentService {
 		}
 	}
 
+	/**
+	 * 운송 DB 작업만 오류 분류 대상이다. H2 완료 기록은 그 밖에서 해, 실패하면 예외가 processOne으로 올라가 주기를 끝낸다.
+	 * 분류 안에 두면 H2 장애가 배송 건별 실패로 세지거나 운송 DB 연결 실패로 남는다 (D-22, D-26).
+	 */
 	private boolean register(Shipment shipment) {
 		String orderId = shipment.orderId();
+		String registered;
+		boolean inserted;
 		try {
 			Optional<Shipment> existing = this.registry.findByOrderId(orderId);
 			this.shipmentDb.connected();
 			if (existing.isPresent()) {
 				// INSERT 후 배송 완료 기록 전에 중단됐던 경우. INSERT 없이 완료만 적는다
-				succeeded(orderId, existing.get().shipmentId(), false);
-				return true;
+				registered = existing.get().shipmentId();
+				inserted = false;
 			}
-			this.registry.insert(shipment);
-			succeeded(orderId, shipment.shipmentId(), true);
-			return true;
+			else {
+				this.registry.insert(shipment);
+				registered = shipment.shipmentId();
+				inserted = true;
+			}
 		}
 		catch (DataIntegrityViolationException ex) {
 			return afterKeyConflict(shipment, ex);
@@ -149,6 +157,8 @@ public class ShipmentService {
 			this.shipmentDb.failed(ex);
 			return false;
 		}
+		succeeded(orderId, registered, inserted);
+		return true;
 	}
 
 	private boolean afterKeyConflict(Shipment shipment, DataIntegrityViolationException conflict) {

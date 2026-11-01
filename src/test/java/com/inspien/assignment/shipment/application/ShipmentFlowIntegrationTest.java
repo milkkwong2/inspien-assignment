@@ -43,6 +43,8 @@ import com.inspien.assignment.support.MutableClock;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
@@ -65,7 +67,7 @@ class ShipmentFlowIntegrationTest {
 	@Autowired
 	OrderService orders;
 
-	@Autowired
+	@MockitoSpyBean
 	RetryService retry;
 
 	@Autowired
@@ -179,6 +181,42 @@ class ShipmentFlowIntegrationTest {
 		assertThat(this.retry.find(ids.get(1), Stage.SHIPMENT).orElseThrow().attempts()).as("다른 주문은 계속 시도")
 			.isEqualTo(1);
 		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.PENDING);
+	}
+
+	/**
+	 * 배송 INSERT는 커밋됐는데 H2 완료 기록이 실패: 우리 쪽 저장소 장애라 그 주기를 끝낸다. 배송 건별 실패로 세거나 운송
+	 * DB 연결 실패로 남기지 않는다. 다음 주기에 기존 배송을 찾아 완료만 적는다 (D-22, D-26).
+	 */
+	@Test
+	void completionRecordFailureEndsCycleWithoutCountingOrBlamingShipmentDb() {
+		completionRecordFailureEndsCycle("G", new JpaSystemException(new RuntimeException("H2 쓰기 실패")));
+	}
+
+	@Test
+	void completionRecordConnectionFailureIsNotShipmentDbOutage() {
+		completionRecordFailureEndsCycle("H", new CannotCreateTransactionException("H2 연결 실패"));
+	}
+
+	private void completionRecordFailureEndsCycle(String mark, RuntimeException h2Failure) {
+		List<String> ids = received(mark);
+		doThrow(h2Failure).when(this.retry).recordCompletion(eq(ids.get(0)), eq(Stage.SHIPMENT), anyString());
+		long failsBefore = count(ProcessEvent.Result.FAIL);
+		long skipsBefore = count(ProcessEvent.Result.CYCLE_SKIPPED);
+
+		this.shipments.runCycle();
+
+		assertThat(shipmentCount(ids.get(0))).as("INSERT는 커밋됐다").isEqualTo(1);
+		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).as("건별 실패로 세지 않는다")
+			.isZero();
+		assertThat(count(ProcessEvent.Result.FAIL)).isEqualTo(failsBefore);
+		assertThat(count(ProcessEvent.Result.CYCLE_SKIPPED)).as("운송 DB 장애가 아니다").isEqualTo(skipsBefore);
+		assertThat(shipmentCount(ids.get(1))).as("주기를 끝내 다음 주문은 처리하지 않는다").isZero();
+
+		doCallRealMethod().when(this.retry).recordCompletion(anyString(), any(), any());
+		this.shipments.runCycle();
+
+		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(shipmentCount(ids.get(0))).isEqualTo(1);
 	}
 
 	private List<String> received(String mark) {

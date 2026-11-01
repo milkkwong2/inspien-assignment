@@ -10,13 +10,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
+import com.inspien.assignment.global.persistence.BaseTimeEntity;
+
 /**
  * H2 ORDER_STAGE (schema-h2.sql).
  */
 @Entity
 @Table(name = "ORDER_STAGE")
 @IdClass(OrderStageEntity.Key.class)
-class OrderStageEntity {
+class OrderStageEntity extends BaseTimeEntity {
 
 	@Id
 	@Column(name = "ORDER_ID")
@@ -41,9 +43,6 @@ class OrderStageEntity {
 	@Column(name = "ARTIFACT")
 	private String artifact;
 
-	@Column(name = "UPDATED_AT")
-	private Instant updatedAt;
-
 	protected OrderStageEntity() {
 	}
 
@@ -52,14 +51,12 @@ class OrderStageEntity {
 		this.stage = stage;
 	}
 
-	void update(int attempts, Instant nextAttemptAt, boolean reachedFailed, String lastError, String artifact,
-			Instant updatedAt) {
+	void update(int attempts, Instant nextAttemptAt, boolean reachedFailed, String lastError, String artifact) {
 		this.attempts = attempts;
 		this.nextAttemptAt = nextAttemptAt;
 		this.reachedFailed = reachedFailed;
 		this.lastError = lastError;
 		this.artifact = artifact;
-		this.updatedAt = updatedAt;
 	}
 
 	String orderId() {
@@ -88,10 +85,6 @@ class OrderStageEntity {
 
 	String artifact() {
 		return this.artifact;
-	}
-
-	Instant updatedAt() {
-		return this.updatedAt;
 	}
 
 	static class Key implements Serializable {

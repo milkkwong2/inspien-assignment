@@ -10,12 +10,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
+import com.inspien.assignment.global.persistence.BaseTimeEntity;
+
 /**
  * H2 RECEIVED_MESSAGE (schema-h2.sql).
  */
 @Entity
 @Table(name = "RECEIVED_MESSAGE")
-class ReceivedMessageEntity {
+class ReceivedMessageEntity extends BaseTimeEntity {
 
 	@Id
 	@Column(name = "ID")

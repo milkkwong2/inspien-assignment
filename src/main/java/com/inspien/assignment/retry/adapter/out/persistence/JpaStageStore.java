@@ -55,7 +55,7 @@ class JpaStageStore implements StageStore {
 			entity = new OrderStageEntity(s.orderId(), s.stage().name());
 		}
 		// persist 전에 값을 채운다. Hibernate는 persist 시점의 값으로 INSERT한다
-		entity.update(s.attempts(), s.nextAttemptAt(), s.reachedFailed(), s.lastError(), s.artifact(), s.updatedAt());
+		entity.update(s.attempts(), s.nextAttemptAt(), s.reachedFailed(), s.lastError(), s.artifact());
 		if (isNew) {
 			this.em.persist(entity);
 		}
@@ -63,7 +63,7 @@ class JpaStageStore implements StageStore {
 
 	private static StageState toModel(OrderStageEntity e) {
 		return new StageState(e.orderId(), Stage.valueOf(e.stage()), e.attempts(), e.nextAttemptAt(),
-				e.reachedFailed(), e.lastError(), e.artifact(), e.updatedAt());
+				e.reachedFailed(), e.lastError(), e.artifact());
 	}
 
 }

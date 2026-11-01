@@ -7,12 +7,14 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import com.inspien.assignment.global.persistence.BaseTimeEntity;
+
 /**
  * H2 PROCESS_EVENT (schema-h2.sql).
  */
 @Entity
 @Table(name = "PROCESS_EVENT")
-class ProcessEventEntity {
+class ProcessEventEntity extends BaseTimeEntity {
 
 	@Id
 	@Column(name = "ID")

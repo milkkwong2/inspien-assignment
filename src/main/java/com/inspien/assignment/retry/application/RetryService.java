@@ -60,7 +60,7 @@ public class RetryService {
 		for (String orderId : candidates) {
 			StageState state = states.get(orderId);
 			if (state != null && state.reachedFailed()) {
-				this.store.save(state.resetByOperator(now));
+				this.store.save(state.resetByOperator());
 				this.events.publish(null, orderId, eventStage(stage), ProcessEvent.Result.OPERATOR_RESET,
 						"운영자 되돌림 감지: 횟수 0부터 다시 처리 (이전 " + state.attempts() + "회)");
 				state = null;
@@ -84,10 +84,10 @@ public class RetryService {
 	@HistoryTx
 	public Failure recordFailure(String orderId, Stage stage, String error) {
 		Instant now = this.clock.instant();
-		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage, now));
+		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage));
 		int attempts = current.attempts() + 1;
 		Instant next = this.policy.nextAttemptAt(now, attempts);
-		this.store.save(current.failed(truncate(error), next, now));
+		this.store.save(current.failed(truncate(error), next));
 		return new Failure(attempts, this.policy.exhausted(attempts), next);
 	}
 
@@ -97,17 +97,15 @@ public class RetryService {
 	 */
 	@HistoryTx
 	public void markReachedFailed(String orderId, Stage stage, String error) {
-		Instant now = this.clock.instant();
-		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage, now));
+		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage));
 		this.store.save(new StageState(orderId, stage, current.attempts(), null, true, truncate(error),
-				current.artifact(), now));
+				current.artifact()));
 	}
 
 	@HistoryTx
 	public void recordSuccess(String orderId, Stage stage, String artifact) {
-		Instant now = this.clock.instant();
-		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage, now));
-		this.store.save(current.succeeded(artifact, now));
+		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage));
+		this.store.save(current.succeeded(artifact));
 	}
 
 	/**
@@ -115,13 +113,12 @@ public class RetryService {
 	 */
 	@HistoryTx
 	public String artifactOrAssign(String orderId, Stage stage, Supplier<String> assign) {
-		Instant now = this.clock.instant();
-		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage, now));
+		StageState current = this.store.find(orderId, stage).orElseGet(() -> StageState.initial(orderId, stage));
 		if (current.artifact() != null) {
 			return current.artifact();
 		}
 		String artifact = assign.get();
-		this.store.save(current.withArtifact(artifact, now));
+		this.store.save(current.withArtifact(artifact));
 		return artifact;
 	}
 

@@ -7,12 +7,14 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import com.inspien.assignment.global.persistence.BaseTimeEntity;
+
 /**
  * H2 MESSAGE_ORDER (schema-h2.sql).
  */
 @Entity
 @Table(name = "MESSAGE_ORDER")
-class MessageOrderEntity {
+class MessageOrderEntity extends BaseTimeEntity {
 
 	@Id
 	@Column(name = "ORDER_ID")

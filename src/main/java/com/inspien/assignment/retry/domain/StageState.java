@@ -13,13 +13,12 @@ import java.time.Instant;
  * @param reachedFailed *_FAILED까지 갔었는가. 다시 대상에 나타나면 운영자가 되돌린 것이다
  * @param lastError 마지막 오류
  * @param artifact 결과물: 영수증 파일명 또는 미리 배정한 SHIPMENT_ID
- * @param updatedAt 마지막 갱신
  */
 public record StageState(String orderId, Stage stage, int attempts, Instant nextAttemptAt, boolean reachedFailed,
-		String lastError, String artifact, Instant updatedAt) {
+		String lastError, String artifact) {
 
-	public static StageState initial(String orderId, Stage stage, Instant now) {
-		return new StageState(orderId, stage, 0, null, false, null, null, now);
+	public static StageState initial(String orderId, Stage stage) {
+		return new StageState(orderId, stage, 0, null, false, null, null);
 	}
 
 	public boolean waitingUntilAfter(Instant now) {
@@ -29,23 +28,23 @@ public record StageState(String orderId, Stage stage, int attempts, Instant next
 	/**
 	 * 운영자 되돌림: 횟수를 0부터 다시 센다. 미리 배정한 결과물(SHIPMENT_ID)은 그대로 둔다.
 	 */
-	public StageState resetByOperator(Instant now) {
-		return new StageState(this.orderId, this.stage, 0, null, false, null, this.artifact, now);
+	public StageState resetByOperator() {
+		return new StageState(this.orderId, this.stage, 0, null, false, null, this.artifact);
 	}
 
-	public StageState failed(String error, Instant nextAttemptAt, Instant now) {
+	public StageState failed(String error, Instant nextAttemptAt) {
 		return new StageState(this.orderId, this.stage, this.attempts + 1, nextAttemptAt, this.reachedFailed, error,
-				this.artifact, now);
+				this.artifact);
 	}
 
-	public StageState succeeded(String artifact, Instant now) {
+	public StageState succeeded(String artifact) {
 		return new StageState(this.orderId, this.stage, this.attempts, null, false, null,
-				(artifact != null) ? artifact : this.artifact, now);
+				(artifact != null) ? artifact : this.artifact);
 	}
 
-	public StageState withArtifact(String artifact, Instant now) {
+	public StageState withArtifact(String artifact) {
 		return new StageState(this.orderId, this.stage, this.attempts, this.nextAttemptAt, this.reachedFailed,
-				this.lastError, artifact, now);
+				this.lastError, artifact);
 	}
 
 }

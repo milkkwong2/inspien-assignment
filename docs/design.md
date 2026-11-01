@@ -1053,3 +1053,33 @@ flowchart LR
 | 공용 계정 세션 한도 | 내 연결 7개(쇼핑몰 5 + 운송 2)를 받을 여유가 있다 | `USER_RESOURCE_LIMITS`의 `SESSIONS_PER_USER` (조회할 수 있을 때) | 커넥션 풀 크기 조정 | D-11, D-19 |
 
 - ~~구현하며 로컬에서 확인할 것: `@TenantId`와 복합 PK, Oracle 예외 분류~~ → 확인함 (2026-11-01, D-25). `@TenantId`는 동작하고, `ORA-12899`는 무결성 위반이 아니라 `JpaSystemException`으로 나온다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어써 원인 사슬 전체로 판정한다.
+
+### 11.1 확인 결과 (2026-11-01, 읽기 전용)
+
+`./gradlew checkProvided`로 확인했다. Oracle은 읽기 전용 트랜잭션에서 SELECT만, FTP는 로그인·FEAT·목록 조회만 했다. 제공 환경에 쓴 것은 없다.
+
+> [!CAUTION]
+> **`ORDER_TB.STATUS`에 CHECK 제약 `STATUS IN ('N', 'Y')`가 있다.** §6의 상태 5개(`RECEIVED` 등)는 저장할 수 없다. 상태 설계를 다시 정해야 한다 (미결정).
+
+| 확인할 것 | 지금 가정 | 확인 결과 | 영향 |
+|---|---|---|---|
+| 컬럼 길이 단위, NOT NULL | 바이트 기준 100 | `VARCHAR2(100 BYTE)`, `NLS_LENGTH_SEMANTICS=BYTE`. NOT NULL은 PK 두 컬럼뿐 | 가정대로. `VALUE_TOO_LONG` 검증 그대로 |
+| Oracle DB 문자셋 | MS949 확장 한글 저장 가능 | `AL32UTF8` | 가정대로. 길이는 UTF-8 바이트로 센다(`db-charset: UTF-8`) |
+| Oracle 버전 | Free 컨테이너와 같은 동작 | 19c Enterprise 19.9 | 로컬은 23 Free. 쓰는 기능(JPQL, 시퀀스 없음, 벌크 UPDATE)은 같다 |
+| FTP / FTPS | FTP | 평문 FTP 로그인 가능, `AUTH TLS`도 지원 | 평문 FTP로 간다. FTPS는 쓰지 않는다 |
+| 한글 파일명 인코딩 | UTF-8 | FEAT에 `UTF8`. 공용 폴더의 한글 파일명 64개가 모두 UTF-8로 읽힘(MS949로는 0개) | 가정대로 |
+| 응답 시간 | 평소 1초 미만 | Oracle 접속 0.5초·쿼리 2ms, FTP 접속 13ms·목록 0.1초 | 타임아웃 값 그대로 |
+| 공용 계정 세션 한도 | 7개 여유 | `SESSIONS_PER_USER = UNLIMITED` | 풀 크기 그대로 |
+
+**PPT에 없던 것.**
+
+| 항목 | 내용 | 영향 |
+|---|---|---|
+| CHECK 제약 | `STATUS IN ('N', 'Y')` | **상태 설계 변경 필요** (위 경고) |
+| CHECK 제약 | `ORDER_ID`, `SHIPMENT_ID`: `REGEXP_LIKE(..., '^[A-Z][0-9]{3}$')` | 채번 형식과 같다 |
+| 추가 컬럼 | `ORDER_TB.CREATE_TIME`, `SHIPMENT_TB.CREATE_DATE` (`TIMESTAMP(6)`, 기본값 `SYSDATE`) | INSERT에 넣지 않으면 DB 시각이 들어간다. 면접의 "당일 날짜 기준 조회"가 이 컬럼을 쓰는 것으로 보인다 |
+| 테이블 소유 | `RECRUIT` 스키마. 접속 시 현재 스키마가 `RECRUIT`로 설정됨(동의어 없음) | 스키마 접두어 없이 접근하는 지금 방식 그대로 |
+| 권한 | 두 테이블 모두 SELECT·INSERT·UPDATE | 가정대로 |
+| 트리거, 추가 인덱스 | 없음 (PK 인덱스만) | — |
+| 기존 데이터 | `ORDER_TB` 1건(지원자 1명, STATUS `N`), `SHIPMENT_TB` 0건. 내 키의 행 없음 | 채번은 A001부터 |
+| FTP 공용 폴더 | 파일 65개. 다른 지원자 파일은 `{이름}_{ORDER_ID}.xml` 모양 | 우리 파일명(`영수증_…csv`)과 겹치지 않는다 |

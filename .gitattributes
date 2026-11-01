@@ -1,4 +1,6 @@
 /gradlew text eol=lf
 *.sh text eol=lf
+# 컨테이너 안에서 읽는 설정 파일. Windows에서 CRLF로 체크아웃되면 vsftpd가 값 끝의 \r을 읽는다
+/local/** text eol=lf
 *.bat text eol=crlf
 *.jar binary

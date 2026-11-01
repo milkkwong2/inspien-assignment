@@ -157,7 +157,7 @@ flowchart LR
 | 영수증 | `receipt` | `STATUS=N`이고 영수증 미완료인 주문의 영수증 CSV 생성·업로드, 완전성 확인 | FTP (+ `order`, `inbound`, `retry`) | D-09, D-10, D-12, D-26 |
 | 배송 | `shipment` | `STATUS=N`이고 배송 미완료인 주문의 배송 등록 | 운송 DB (+ `order`, `inbound`, `numbering`, `retry`) | D-03, D-10, D-12, D-26 |
 | 재시도 관리 | `retry` | 주문·단계별 횟수, 다음 시도 시각, 단계 완료, "사람이 확인" 표시와 그 해제 | H2 | D-10, D-26 |
-| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 단계별 상태 계산, 운영자 창구(조회 API + 재처리 API 하나) | H2 (+ `order`, `retry`) | D-13, D-26 |
+| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 단계별 상태 계산, 운영자 창구(조회 API + 재처리 API 하나) | H2 (+ `order`, `inbound`, `retry`) | D-13, D-21, D-26 |
 | 공통 | `global` | 응답 래퍼, 오류 코드 enum, 전역 예외 처리기, `traceId`, DataSource 3개 설정 | — | D-18, D-19 |
 | 부트스트랩 (구현됨) | `bootstrap` | 과제 API에서 접속 정보 수신·복호화. 별도 진입점 `./gradlew bootstrap` | `config/` | — |
 
@@ -205,6 +205,7 @@ flowchart LR
     order -. 최댓값 포트 구현 .-> numbering
     order --> retry
     tracking --> order
+    tracking --> inbound
     tracking --> retry
     inbound --> H2
     numbering --> H2
@@ -222,7 +223,7 @@ flowchart LR
 
 - 초록은 연계 흐름(IF-01~04), 보라는 흐름들이 함께 쓰는 핵심이다. 도메인 사이 화살표는 상대의 `application` 서비스 호출이다.
 - `receipt`와 `shipment` 사이에는 화살표가 없다. 서로를 모르고 각자 H2에 자기 단계의 완료를 적는다. 두 단계가 모두 끝났는지는 `order`의 마감 스케줄러만 본다 (D-26).
-- 영수증·배송은 수신일시와 수신 기록 유무를 `inbound`의 서비스로 읽는다. `RECEIVED_MESSAGE`·`MESSAGE_ORDER`는 `inbound`가 맡는다 (D-21).
+- 영수증·배송은 수신일시와 수신 기록 유무를 `inbound`의 서비스로 읽는다. 조회 API(`tracking`)도 주문을 실어 온 메시지 ID·수신 시각과 메시지 상세·목록을 같은 서비스로 읽는다. `RECEIVED_MESSAGE`·`MESSAGE_ORDER`는 `inbound`가 맡고, `inbound`는 이들을 모른다. 처리 이벤트를 Spring 이벤트로 발행하는 것도 `inbound` → `tracking` 호출로 순환이 생기지 않게 하려는 것이다 (D-13, D-21).
 - 채번기는 시작할 때 두 Oracle의 최댓값을 포트 `IssuedIdReader`로 읽고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다(점선, `shipment`는 이미 화살표가 있어 생략). 채번기가 `shipment`를 부르면 서로 부르는 순환이 되기 때문이다 (D-21).
 - `global`(응답·오류·설정)과 `bootstrap`은 그림에서 뺐다.
 
@@ -245,6 +246,7 @@ receipt
 | Repository | 포트(`application/port`) + 그 구현(`adapter/out/…`). Spring Data 리포지토리와 JPA 엔티티는 구현 안쪽에 숨는다 |
 
 - 의존 규칙: `adapter` → `application` → `domain`. 다른 도메인은 `application`으로만 부른다. ArchUnit 테스트로 강제한다 (D-21).
+- 도메인 사이 화살표는 위 그림에 있는 것만 허용한다. 같은 허용 목록을 ArchUnit 테스트에 두어, 그림에 없는 의존이 생기면 테스트가 실패한다. 그림을 바꿀 때는 그 목록도 함께 바꾼다 (D-21).
 - 포트는 바깥 시스템(쇼핑몰 Oracle, 운송 Oracle, FTP, H2, 수신 본문 파서)에만 둔다. 내부 서비스는 인터페이스 없이 클래스다.
 - `APPLICANT_KEY`는 Oracle 어댑터가 모든 쿼리 조건과 INSERT 값에 붙인다. 서비스와 정규 모델은 이 값을 모른다 (D-01, D-21).
 

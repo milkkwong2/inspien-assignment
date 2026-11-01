@@ -1,6 +1,8 @@
 package com.inspien.assignment;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -18,7 +20,7 @@ import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.sli
  * <pre>
  * 도메인 안쪽:  adapter → application → domain
  * 도메인 사이:  다른 도메인의 application·domain만 쓴다. adapter는 그 도메인 것이다
- * receipt ↔ shipment: 서로 모른다. ORDER_TB.STATUS로만 이어진다 (D-06)
+ * 어느 도메인을: 설계서 §3 그림의 화살표만 (ALLOWED)
  * </pre>
  */
 @AnalyzeClasses(packages = "com.inspien.assignment", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -28,6 +30,25 @@ class ArchitectureTest {
 
 	static final List<String> DOMAINS = List.of("order", "inbound", "receipt", "shipment", "tracking", "numbering",
 			"retry");
+
+	/**
+	 * 도메인 사이 허용 의존: 설계서 §3 그림과 같은 표다 (D-21, D-26). 여기 없는 도메인 의존은 실패한다. 그림을 바꿀 때 함께
+	 * 바꾼다. global은 모든 도메인이 쓸 수 있다.
+	 *
+	 * <ul>
+	 * <li>receipt와 shipment는 서로 모른다. 각자 자기 단계만 적고, 둘을 합쳐 보는 것은 order의 마감이다.</li>
+	 * <li>retry와 numbering은 다른 도메인을 모른다. 여럿이 함께 쓰는 핵심이다.</li>
+	 * <li>order → numbering, shipment → numbering의 일부는 채번기 포트 IssuedIdReader 구현이다. 반대로 부르면 순환이다.</li>
+	 * </ul>
+	 */
+	static final Map<String, Set<String>> ALLOWED = Map.of(
+			"numbering", Set.of(),
+			"retry", Set.of(),
+			"order", Set.of("numbering", "retry"),
+			"inbound", Set.of("order", "numbering"),
+			"receipt", Set.of("order", "inbound", "retry"),
+			"shipment", Set.of("order", "inbound", "numbering", "retry"),
+			"tracking", Set.of("order", "inbound", "retry"));
 
 	@ArchTest
 	static final ArchRule domainIsPureJava = noClasses().that()
@@ -46,33 +67,42 @@ class ArchitectureTest {
 		.resideInAPackage(ROOT + ".*.adapter..")
 		.allowEmptyShould(true);
 
-	@ArchTest
-	static final ArchRule receiptDoesNotKnowShipment = noClasses().that()
-		.resideInAPackage(ROOT + ".receipt..")
-		.should()
-		.dependOnClassesThat()
-		.resideInAPackage(ROOT + ".shipment..")
-		.allowEmptyShould(true);
-
-	@ArchTest
-	static final ArchRule shipmentDoesNotKnowReceipt = noClasses().that()
-		.resideInAPackage(ROOT + ".shipment..")
-		.should()
-		.dependOnClassesThat()
-		.resideInAPackage(ROOT + ".receipt..")
-		.allowEmptyShould(true);
-
 	/**
-	 * retry는 단계 진행 상태만 맡는다. order(마감)·receipt·shipment·tracking(재처리 API)이 retry를 쓰고, retry는 그들을
-	 * 모른다 (D-21, D-26).
+	 * 금지 목록이 아니라 허용 목록이다. 금지 목록은 새 의존을 막지 못해, 그림에 없는 화살표가 생겨도 순환만 아니면 통과한다.
 	 */
 	@ArchTest
-	static final ArchRule retryDoesNotKnowOtherDomains = noClasses().that()
-		.resideInAPackage(ROOT + ".retry..")
+	static void domainsDependOnlyOnAllowedDomains(JavaClasses classes) {
+		if (!ALLOWED.keySet().equals(Set.copyOf(DOMAINS))) {
+			throw new IllegalStateException("도메인 목록과 허용 표가 다르다: " + DOMAINS + " / " + ALLOWED.keySet());
+		}
+		for (String domain : DOMAINS) {
+			String[] forbidden = DOMAINS.stream()
+				.filter(other -> !other.equals(domain) && !ALLOWED.get(domain).contains(other))
+				.map(other -> ROOT + "." + other + "..")
+				.toArray(String[]::new);
+			if (forbidden.length == 0) {
+				continue;
+			}
+			noClasses().that()
+				.resideInAPackage(ROOT + "." + domain + "..")
+				.should()
+				.dependOnClassesThat()
+				.resideInAnyPackage(forbidden)
+				.as(domain + "는 허용된 도메인 " + ALLOWED.get(domain) + "만 의존한다 (설계서 §3)")
+				.allowEmptyShould(true)
+				.check(classes);
+		}
+	}
+
+	/**
+	 * global은 공통 계약(응답, 오류 코드, 이벤트, 설정)만 둔다. 도메인을 알면 모든 도메인과 순환이 생길 수 있다.
+	 */
+	@ArchTest
+	static final ArchRule globalDoesNotKnowDomains = noClasses().that()
+		.resideInAPackage(ROOT + ".global..")
 		.should()
 		.dependOnClassesThat()
-		.resideInAnyPackage(ROOT + ".order..", ROOT + ".inbound..", ROOT + ".receipt..", ROOT + ".shipment..",
-				ROOT + ".tracking..", ROOT + ".numbering..")
+		.resideInAnyPackage(DOMAINS.stream().map(d -> ROOT + "." + d + "..").toArray(String[]::new))
 		.allowEmptyShould(true);
 
 	@ArchTest

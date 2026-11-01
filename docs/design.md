@@ -26,22 +26,27 @@ sequenceDiagram
     Note over S,O: IF-01 수신 (요청 안에서 동기 처리)
     S->>A: 주문 XML POST
     A->>H: 원본 저장, 주문번호 미리 배정 (예: A001)
-    A->>O: INSERT, STATUS=RECEIVED
+    A->>O: INSERT, STATUS=N
     A-->>S: 200 + ORDER_ID 목록
     end
 
-    rect rgba(52, 168, 83, 0.08)
-    Note over A,F: IF-02 영수증 (최대 30초 뒤 스케줄러)
-    A->>O: STATUS=RECEIVED 주문 조회
+    par IF-02 영수증 (스케줄러, 30초마다)
+    A->>O: STATUS=N 주문 조회
+    A->>H: 영수증 미완료만 고름
     A->>F: 영수증_홍길동_A001.csv 업로드
-    A->>O: STATUS=RECEIPT_SENT
+    A->>H: 영수증 완료 기록
+    and IF-03 배송 (스케줄러, 30초마다)
+    A->>O: STATUS=N 주문 조회
+    A->>H: 배송 미완료만 고름
+    A->>T: INSERT (SHIPMENT_ID는 H2에 미리 배정)
+    A->>H: 배송 완료 기록
     end
 
     rect rgba(251, 188, 4, 0.10)
-    Note over A,T: IF-03 배송 (최대 30초 뒤 스케줄러)
-    A->>O: STATUS=RECEIPT_SENT 주문 조회
-    A->>T: INSERT (SHIPMENT_ID는 H2에 미리 배정)
-    A->>O: STATUS=SHIPPED
+    Note over A,O: 마감 (스케줄러, 30초마다)
+    A->>O: STATUS=N 주문 조회
+    A->>H: 영수증·배송 모두 완료인 주문만 고름
+    A->>O: STATUS=Y (연계 완료)
     end
 
     Note over A,H: IF-04 모든 단계의 결과는 H2 처리 이벤트로 남고 조회 API로 본다
@@ -51,7 +56,7 @@ sequenceDiagram
 
 | | 원칙 | 왜 | 근거 |
 |---|---|---|---|
-| 🎯 | 작업 큐는 `ORDER_TB.STATUS` 하나 | 진행 상태가 두 곳으로 갈라지지 않게 | D-04 |
+| 🎯 | 사실 하나는 한 곳에만: 연계 완료는 `ORDER_TB.STATUS`(N/Y), 단계 진행은 H2 | 같은 사실을 두 곳에 두면 어긋날 때 어느 쪽이 맞는지 다시 판단해야 한다 | D-04, D-26 |
 | 🔁 | 다시 해도 결과가 같게 (멱등) | 두 DB와 FTP는 한 트랜잭션으로 묶을 수 없다 | D-03 |
 | 🔒 | 모든 쿼리에 `APPLICANT_KEY` 강제 | 공용 테이블이고 DELETE가 안 된다 | D-01 |
 | 🚪 | 잘못된 데이터는 입구에서 거부 | 고객 DB에 들어가면 지울 수 없다 | D-07 |
@@ -66,7 +71,7 @@ pie showData
     "거부 (HEADER 없음)" : 7
 ```
 
-ITEM이 없는 HEADER 4건은 저장할 주문이 없어 경고로 남는다. 저장된 63건은 영수증 63개, 배송 63건이 되어 모두 `SHIPPED`로 끝난다 (D-07, D-11).
+ITEM이 없는 HEADER 4건은 저장할 주문이 없어 경고로 남는다. 저장된 63건은 영수증 63개, 배송 63건이 되어 모두 `STATUS=Y`로 끝난다 (D-07, D-11).
 
 ## 1. 개요와 범위
 
@@ -90,7 +95,7 @@ ITEM이 없는 HEADER 4건은 저장할 주문이 없어 경고로 남는다. �
 | 범위 안 | 범위 밖 |
 |---|---|
 | IF-01 ~ IF-04 | 멀티 인스턴스 |
-| 수신 중복 방지, 재시도, 운영자 재처리 감지 | 조회 API 인증 |
+| 수신 중복 방지, 재시도, 운영자 재처리 API | 조회·재처리 API 인증 |
 | 처리 이력과 조회 API | H2 이력 보관 기간, 장애 알림 |
 | 로컬 테스트 환경 | 수신 재처리 스케줄러 (수신 재시도는 송신자 몫, D-04) |
 
@@ -104,20 +109,21 @@ flowchart LR
         RECV[주문 수신<br/>IF-01]:::app
         RCPT[영수증 스케줄러<br/>IF-02]:::app
         SHIP[배송 스케줄러<br/>IF-03]:::app
+        CLOSE[마감 스케줄러<br/>STATUS N→Y]:::app
         TRACK[조회 API<br/>IF-04]:::app
         H2[(H2 파일 DB<br/>원본·채번·이력)]:::store
     end
 
     RECV --> ORA1[(쇼핑몰 Oracle<br/>ORDER_TB)]:::store
-    RCPT -- "STATUS 폴링·갱신" --> ORA1
+    RCPT -- "STATUS=N 폴링" --> ORA1
     RCPT -- "영수증 CSV 업로드" --> FTP[[FTP 서버<br/>회계팀]]:::ext
-    SHIP -- "STATUS 폴링·갱신" --> ORA1
+    SHIP -- "STATUS=N 폴링" --> ORA1
     SHIP -- "배송 INSERT" --> ORA2[(운송회사 Oracle<br/>SHIPMENT_TB)]:::store
-    RECV & RCPT & SHIP --> H2
+    CLOSE -- "둘 다 완료면 N→Y" --> ORA1
+    RECV & RCPT & SHIP & CLOSE --> H2
     TRACK --> H2
     TRACK --> ORA1
-    OPS[운영자]:::ops -- "조회" --> TRACK
-    OPS -- "STATUS 되돌림" --> ORA1
+    OPS[운영자]:::ops -- "조회·재처리" --> TRACK
 
     classDef ext fill:#e3edfb,stroke:#4a6fa5,color:#1a1a1a
     classDef app fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
@@ -130,28 +136,28 @@ flowchart LR
 | 시스템 | 연결 | 우리가 하는 일 | 권한 |
 |---|---|---|---|
 | 송신 시스템 | 우리 API를 호출 | 주문 XML 수신 | — |
-| 쇼핑몰 Oracle `ORDER_TB` | JDBC, DataSource 1 | INSERT, `STATUS` 조회·갱신 | SELECT·INSERT·UPDATE. 지원자 공용 테이블 |
+| 쇼핑몰 Oracle `ORDER_TB` | JDBC, DataSource 1 | INSERT, `STATUS`(N/Y) 조회·갱신 | SELECT·INSERT·UPDATE. 지원자 공용 테이블 |
 | 운송회사 Oracle `SHIPMENT_TB` | JDBC, DataSource 2 | 배송 조회·INSERT | SELECT·INSERT·UPDATE. 지원자 공용 테이블 |
-| FTP 서버 | FTP(또는 FTPS, 미확인) | 목록 조회, 영수증 업로드 | 목록·신규 업로드만 |
+| FTP 서버 | 평문 FTP (FTPS도 지원하지만 쓰지 않음, §11.1) | 목록 조회, 영수증 업로드 | 목록·신규 업로드만 |
 
 - 두 Oracle은 지금 같은 인스턴스·같은 계정이지만 서로 다른 시스템으로 보고 DataSource를 나눈다 (D-02). 그래서 두 DB에 걸친 작업은 한 트랜잭션으로 묶이지 않는다.
-- 정합성은 분산 트랜잭션 대신 **단계별 커밋 + 멱등성 + `STATUS` 기반 재처리**로 맞춘다 (D-03).
+- 정합성은 분산 트랜잭션 대신 **단계별 커밋 + 멱등성 + 사전 확인 후 재처리**로 맞춘다 (D-03).
 
 > [!IMPORTANT]
-> 작업 큐는 `ORDER_TB.STATUS` 하나다. H2는 원본·채번·이력을 맡고 진행 상태의 기준이 되지 않는다 (D-04).
+> 제공 `ORDER_TB.STATUS`는 CHECK 제약으로 `N`·`Y`만 받는다. `STATUS`는 "연계가 다 끝났나"만 담고(`N` 진행 중, `Y` 영수증·배송 모두 완료), 단계별 완료와 "사람이 확인" 표시는 H2 `ORDER_STAGE`가 담는다. 영수증과 배송은 서로 기다리지 않고 따로 처리하며, `Y`는 마감 스케줄러 한 곳만 쓴다. 작업 대상은 `STATUS=N`인 주문이다 (D-26).
 
 ## 3. 구성요소
 
 | 구성요소 | 패키지 | 책임 | 쓰는 저장소 | 근거 |
 |---|---|---|---|---|
-| 주문 | `order` | 정규 모델 `Order`, 상태 전이 규칙과 조건부 갱신. 다른 도메인은 `OrderService`로만 `ORDER_TB`에 닿는다 | 쇼핑몰 DB | D-06, D-21 |
+| 주문 | `order` | 정규 모델 `Order`, 마감 스케줄러(두 단계 모두 완료면 `STATUS` N→Y 조건부 갱신). 다른 도메인은 `OrderService`로만 `ORDER_TB`에 닿는다 | 쇼핑몰 DB (+ `retry`) | D-21, D-26 |
 | 주문 수신 | `inbound` | 메시지 키 결정, 중복 판단, 수신 잠금, 원본 보존, 파싱·검증, 채번 요청, 응답 | H2 (+ `order`) | D-04, D-05, D-07, D-16 |
 | 주문 본문 파서 | `inbound` (포트 + XML 어댑터) | 인코딩 판단·엄격 디코딩, 맨 앞 선언 제거와 루트 감싸기, DOCTYPE 금지 DOM 파싱, 최상위 HEADER·ITEM을 `USER_ID`로 조인해 정규 모델 생성 | — | D-04, D-07, D-20 |
 | 채번기 | `numbering` | `ORDER_ID`·`SHIPMENT_ID` 발급, 시작 시 Oracle 최댓값과 동기화 | H2 (+ 두 Oracle은 포트로) | D-08, D-21 |
-| 영수증 | `receipt` | `RECEIVED` 주문의 영수증 CSV 생성·업로드, 완전성 확인 | FTP (+ `order`, `inbound`, `retry`) | D-09, D-10, D-12 |
-| 배송 | `shipment` | `RECEIPT_SENT` 주문의 배송 등록 | 운송 DB (+ `order`, `inbound`, `numbering`, `retry`) | D-03, D-10, D-12 |
-| 재시도 관리 | `retry` | 주문·단계별 횟수, 다음 시도 시각, 운영자 되돌림 감지 | H2 | D-10 |
-| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 주문·메시지 처리 상황 조회 (읽기 전용 API) | H2 (+ `order`) | D-13 |
+| 영수증 | `receipt` | `STATUS=N`이고 영수증 미완료인 주문의 영수증 CSV 생성·업로드, 완전성 확인 | FTP (+ `order`, `inbound`, `retry`) | D-09, D-10, D-12, D-26 |
+| 배송 | `shipment` | `STATUS=N`이고 배송 미완료인 주문의 배송 등록 | 운송 DB (+ `order`, `inbound`, `numbering`, `retry`) | D-03, D-10, D-12, D-26 |
+| 재시도 관리 | `retry` | 주문·단계별 횟수, 다음 시도 시각, 단계 완료, "사람이 확인" 표시와 그 해제 | H2 | D-10, D-26 |
+| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 단계별 상태 계산, 운영자 창구(조회 API + 재처리 API 하나) | H2 (+ `order`, `retry`) | D-13, D-26 |
 | 공통 | `global` | 응답 래퍼, 오류 코드 enum, 전역 예외 처리기, `traceId`, DataSource 3개 설정 | — | D-18, D-19 |
 | 부트스트랩 (구현됨) | `bootstrap` | 과제 API에서 접속 정보 수신·복호화. 별도 진입점 `./gradlew bootstrap` | `config/` | — |
 
@@ -171,7 +177,7 @@ flowchart LR
         receipt[receipt<br/>IF-02 영수증]:::app
         shipment[shipment<br/>IF-03 배송]:::app
         tracking[tracking<br/>IF-04 조회]:::app
-        order[order<br/>정규 모델·상태 전이]:::core
+        order[order<br/>정규 모델·STATUS N/Y]:::core
         numbering[numbering<br/>채번]:::core
         retry[retry<br/>재시도 정책]:::core
     end
@@ -185,6 +191,7 @@ flowchart LR
     S --> inbound
     T --> receipt
     T --> shipment
+    T --> order
     OP --> tracking
     inbound --> order
     inbound --> numbering
@@ -196,7 +203,9 @@ flowchart LR
     shipment --> numbering
     shipment --> retry
     order -. 최댓값 포트 구현 .-> numbering
+    order --> retry
     tracking --> order
+    tracking --> retry
     inbound --> H2
     numbering --> H2
     retry --> H2
@@ -212,7 +221,7 @@ flowchart LR
 ```
 
 - 초록은 연계 흐름(IF-01~04), 보라는 흐름들이 함께 쓰는 핵심이다. 도메인 사이 화살표는 상대의 `application` 서비스 호출이다.
-- `receipt`와 `shipment` 사이에는 화살표가 없다. 둘은 `ORDER_TB.STATUS`로만 이어진다 (D-06).
+- `receipt`와 `shipment` 사이에는 화살표가 없다. 서로를 모르고 각자 H2에 자기 단계의 완료를 적는다. 두 단계가 모두 끝났는지는 `order`의 마감 스케줄러만 본다 (D-26).
 - 영수증·배송은 수신일시와 수신 기록 유무를 `inbound`의 서비스로 읽는다. `RECEIVED_MESSAGE`·`MESSAGE_ORDER`는 `inbound`가 맡는다 (D-21).
 - 채번기는 시작할 때 두 Oracle의 최댓값을 포트 `IssuedIdReader`로 읽고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다(점선, `shipment`는 이미 화살표가 있어 생략). 채번기가 `shipment`를 부르면 서로 부르는 순환이 되기 때문이다 (D-21).
 - `global`(응답·오류·설정)과 `bootstrap`은 그림에서 뺐다.
@@ -261,7 +270,7 @@ flowchart LR
     HD -- "USER_ID로 조인" --> ROW
     IT --> ROW
     OSEQ -- ORDER_ID --> ROW
-    ROW[ORDER_TB 1행<br/>ORDER_ID · APPLICANT_KEY · USER_ID · ITEM_ID<br/>NAME · ADDRESS · ITEM_NAME · PRICE · STATUS]:::app
+    ROW[ORDER_TB 1행<br/>ORDER_ID · APPLICANT_KEY · USER_ID · ITEM_ID<br/>NAME · ADDRESS · ITEM_NAME · PRICE · STATUS=N]:::app
 
     ROW --> CSV[영수증 CSV<br/>ORDER_ID · USER_ID · NAME · ITEM_ID<br/>ITEM_NAME · PRICE · 수신일시]:::app
     MO -- 수신일시 --> CSV
@@ -282,7 +291,8 @@ flowchart LR
 | `USER_ID` | ITEM의 `USER_ID` (= HEADER의 `USER_ID`) | D-07 |
 | `ITEM_ID`, `ITEM_NAME`, `PRICE` | ITEM | |
 | `NAME`, `ADDRESS` | 같은 `USER_ID`의 HEADER | D-07 |
-| `STATUS` | §6 상태 값 | D-06 |
+| `STATUS` | 저장할 때 `N`. 영수증·배송이 모두 끝나면 마감 스케줄러가 `Y`. CHECK 제약 `STATUS IN ('N', 'Y')` (§6) | D-26 |
+| `CREATE_TIME` | 넣지 않는다. 엔티티에 매핑하지 않아 DB 기본값(`SYSDATE`)이 들어간다 | D-26, D-27 |
 
 **`SHIPMENT_TB` 값의 출처.**
 
@@ -291,6 +301,9 @@ flowchart LR
 | `SHIPMENT_ID` (PK) | 채번 `A001`~`Z999`, `ORDER_ID`와 별도 시퀀스 (D-08) |
 | `APPLICANT_KEY` (PK) | 설정값 |
 | `ORDER_ID`, `ITEM_ID`, `ADDRESS` | `ORDER_TB`의 해당 주문 |
+| `CREATE_DATE` | 넣지 않는다. 엔티티에 매핑하지 않아 DB 기본값(`SYSDATE`)이 들어간다 (D-26, D-27) |
+
+- `CREATE_TIME`·`CREATE_DATE`는 PPT에 없던 컬럼이다(§11.1). 면접의 "당일 날짜 기준 조회"가 이 컬럼을 쓰는 것으로 보여 DB 시각 그대로 둔다. 영수증의 수신일시는 이 값이 아니라 H2의 수신 시각이다.
 
 **채번 형식.** 정수 시퀀스를 4자로 바꾼다. 고정 길이라 문자열 정렬이 곧 번호 순서다 (D-08).
 
@@ -307,8 +320,9 @@ flowchart LR
 
 **쓰기 규칙.**
 
-- `STATUS` 갱신은 항상 조건부: `UPDATE ... SET STATUS = 다음 WHERE APPLICANT_KEY = ? AND ORDER_ID = ? AND STATUS = 현재`. 갱신 건수가 0이면 이벤트로 남기고 넘어간다 (D-06).
-  - QueryDSL 벌크 UPDATE로 하고 갱신 건수를 확인한다. 엔티티 변경 감지로 갱신하면 `AND STATUS = 현재` 조건이 빠진다.
+- `STATUS` 갱신은 마감 스케줄러의 N→Y 하나뿐이고 항상 조건부다: `UPDATE ... SET STATUS = 'Y' WHERE APPLICANT_KEY = ? AND ORDER_ID = ? AND STATUS = 'N'`. 갱신 건수가 0이면 이벤트로 남기고 넘어간다 (D-06, D-26).
+  - QueryDSL 벌크 UPDATE로 하고 갱신 건수를 확인한다. 엔티티 변경 감지로 갱신하면 `AND STATUS = 'N'` 조건이 빠진다.
+  - 읽은 `STATUS`가 `N`·`Y`가 아니면(내 키의 행에는 생길 수 없다) 예외로 멈춘다. 모르는 값을 조용히 대상에서 빼지 않는다.
 - 수신 메시지 하나의 주문 전체를 한 트랜잭션으로 INSERT한다 (D-05).
 - 재처리할 때는 INSERT 전에 미리 배정한 주문번호로 먼저 조회한다 (D-16).
 - INSERT 중 PK 충돌이 나면 그 트랜잭션을 롤백하고, 새 트랜잭션에서 미리 배정한 번호로 다시 조회해 원본과 비교한다. 같으면 완료, 다르면 `500` (D-19).
@@ -329,7 +343,7 @@ flowchart LR
 - **`WRITE_DELAY=0`:** 커밋 즉시 디스크에 쓴다. 기본값이면 커밋 후 최대 0.5초 동안 안 쓰여서, 그 사이 앱이 죽으면 미리 배정한 주문번호 기록이 사라지고 재전송이 중복 저장된다 (D-19).
 
 > [!CAUTION]
-> H2 파일은 단순 이력이 아니라 중복 판단 정보다. 앱 실행 중에 파일을 복사하지 않는다. 지우거나 옛 백업으로 되돌리면 완료 후 1분 안의 재전송과 실패한 메시지의 재전송을 새 메시지로 받을 수 있다.
+> H2 파일은 단순 이력이 아니라 중복 판단 정보이자 단계 진행 기록이다. 앱 실행 중에 파일을 복사하지 않는다. 지우거나 옛 백업으로 되돌리면 완료 후 1분 안의 재전송과 실패한 메시지의 재전송을 새 메시지로 받을 수 있고, 백업 뒤의 단계 완료·"사람이 확인" 표시·미리 배정한 배송 번호가 사라진다. 복원은 앱을 멈춘 상태에서 하고, 다시 켜기 전에 `STATUS=N` 주문을 FTP 목록·`SHIPMENT_TB`와 대조한다 (D-26).
 
 **테이블.**
 
@@ -350,6 +364,8 @@ erDiagram
         int RESPONSE_STATUS "보낸 응답 코드"
         clob RESPONSE_BODY "재전송 시 그대로 응답"
         timestamp COMPLETED_AT "중복 판단 1분 창의 기준"
+        timestamp CREATED_AT "공통"
+        timestamp UPDATED_AT "공통"
     }
     MESSAGE_ORDER {
         string ORDER_ID PK "미리 배정한 주문번호"
@@ -358,16 +374,20 @@ erDiagram
         string USER_ID
         string ITEM_ID
         timestamp RECEIVED_AT "영수증의 수신일시"
+        timestamp CREATED_AT "공통"
+        timestamp UPDATED_AT "공통"
     }
     ORDER_STAGE {
         string ORDER_ID PK
         string STAGE PK "RECEIPT, SHIPMENT"
         int ATTEMPTS
         timestamp NEXT_ATTEMPT_AT
-        boolean REACHED_FAILED "되돌림 감지용"
+        boolean REACHED_FAILED "사람이 확인: 자동 처리 멈춤"
         string LAST_ERROR
         string ARTIFACT "파일명 또는 미리 배정한 SHIPMENT_ID"
-        timestamp UPDATED_AT
+        timestamp COMPLETED_AT "단계 완료 시각"
+        timestamp CREATED_AT "공통"
+        timestamp UPDATED_AT "공통"
     }
     PROCESS_EVENT {
         string ID PK "TSID"
@@ -377,6 +397,8 @@ erDiagram
         string STAGE
         string RESULT
         string DETAIL
+        timestamp CREATED_AT "공통"
+        timestamp UPDATED_AT "공통"
     }
 ```
 
@@ -384,7 +406,7 @@ erDiagram
 |---|---|---|
 | `RECEIVED_MESSAGE` | 받은 메시지 1건 | 중복 판단, 재전송 시 이전 응답 반환, 거부 사유 (D-05, D-07) |
 | `MESSAGE_ORDER` | 메시지 → 미리 배정한 주문번호 목록 | 재처리 시 같은 번호 재사용, 영수증의 수신일시 (D-05, D-09, D-16) |
-| `ORDER_STAGE` | 주문 × 단계의 재시도 상태 | 백오프, 되돌림 감지, 대상 고르기, 배송 번호 미리 배정 (D-03, D-10, D-12) |
+| `ORDER_STAGE` | 주문 × 단계의 진행 상태 | 단계 완료, "사람이 확인" 표시, 백오프, 대상 고르기, 배송 번호 미리 배정 (D-03, D-10, D-12, D-26) |
 | `PROCESS_EVENT` | 일어난 일 1건. 추가만 한다 | "어디서 무엇이 잘못됐나"의 시간순 기록 (D-13) |
 | 시퀀스 `ORDER_SEQ`, `SHIPMENT_SEQ` | 번호 발급기 | 채번 (D-08) |
 
@@ -400,11 +422,25 @@ erDiagram
 - 주문번호는 Oracle에 넣기 **전에** H2에 먼저 적어 둔다("미리 배정한 주문번호"). 재처리할 때 새 번호를 따지 않고 같은 번호를 다시 써서, 지난번에 실제로 저장됐는지 확인할 수 있게 하기 위해서다 (D-05, D-16).
 - `RECEIVED_MESSAGE.STATE`: `PROCESSING`(처리 중), `COMPLETED`(저장과 응답 기록까지 끝남), `FAILED`(실패, 응답 코드를 함께 기록). 같은 메시지 키의 잠금을 얻은 뒤에도 `PROCESSING`이 보이면 이전 처리가 중간에 중단된 것이다 (D-16).
 - 원본은 디코딩한 문자열이 아니라 받은 바이트로 보존한다. 인코딩 해석이 틀렸을 때도 원본으로 다시 판단할 수 있다.
-- `PROCESS_EVENT.RESULT` 값: `SUCCESS`, `FAIL`, `SKIP`(이미 처리됨), `REJECT`, `WARN`, `OPERATOR_RESET`, `CYCLE_SKIPPED`(연결 실패 시작, 상태가 바뀔 때 한 번), `CONNECTION_RECOVERED`(복구, 건너뛴 주기 수 포함), `STATE_MISMATCH`(조건부 갱신 0건), `MISSING_RECORD`(H2에 수신 기록이 없는 주문, `ORDER_ID`는 상세에) (D-22).
+- `PROCESS_EVENT.STAGE` 값: `RECEIVE`(수신), `RECEIPT`(영수증), `SHIPMENT`(배송), `CLOSE`(마감, `STATUS` N→Y) (D-26).
+- `PROCESS_EVENT.RESULT` 값: `SUCCESS`, `FAIL`, `SKIP`(이미 처리됨), `REJECT`, `WARN`, `OPERATOR_RESET`, `CYCLE_SKIPPED`(연결 실패 시작, 상태가 바뀔 때 한 번), `CONNECTION_RECOVERED`(복구, 건너뛴 주기 수 포함), `MISSING_RECORD`(H2에 수신 기록이 없는 주문, `ORDER_ID`는 상세에) (D-22).
+  - 마감 스케줄러는 `Y`를 쓸 때 `CLOSE` + `SUCCESS`를 남긴다. 주문 상세의 이벤트에 "연계 완료" 시각이 보인다. 갱신 0건(이미 `Y`)은 남기지 않는다 (D-26).
+  - `STATE_MISMATCH`(조건부 갱신 0건)는 쓰지 않는다. `STATUS`를 바꾸는 곳이 마감 스케줄러 하나이고, 그 0건은 정상이다 (D-26).
 - D-13의 "이력 3종"은 `RECEIVED_MESSAGE`, `ORDER_STAGE`, `PROCESS_EVENT`다. `MESSAGE_ORDER`는 채번·중복 방지용(D-05, D-08)이라 따로 센다.
 
+- **`ORDER_STAGE`는 이력이 아니라 진행 상태다 (D-26).** 주문마다 영수증 행과 배송 행이 따로 있다. 단계 완료(`COMPLETED_AT`)와 "사람이 확인"(`REACHED_FAILED`)은 Oracle에 담을 곳이 없어 여기에만 있다. 그래서 최선 노력으로 쓰지 않는다.
+  - 쓰기에 실패하면 그 주기를 끝낸다 (D-22). 완료를 못 적었으면 다음 주기에 사전 확인(FTP 목록, `SHIPMENT_TB` 조회)으로 완료만 적는다.
+  - 건별 실패 1회는 횟수, 다음 시도 시각, 한도에 닿았으면 `REACHED_FAILED`까지 **한 H2 트랜잭션**으로 쓴다.
+  - Oracle `STATUS`의 사본은 두지 않는다. `Y`는 두 행의 `COMPLETED_AT`을 합친 요약이고 Oracle에만 있다.
+- **공통 시각 필드 (D-27).** H2 엔티티 네 개 모두 `CREATED_AT`(INSERT 때, 이후 불변)·`UPDATED_AT`(INSERT·UPDATE 때)을 가진다. 공통 클래스(`@MappedSuperclass`)의 JPA 표준 콜백 `@PrePersist`·`@PreUpdate`가 JVM 시각으로 채운다.
+  - 업무 시각(`RECEIVED_AT`, `COMPLETED_AT`, `OCCURRED_AT`)과 다르다. 업무 시각은 앱의 `Clock`으로 채우고 판단에 쓴다. 공통 필드는 "행이 언제 생기고 바뀌었나"만 알려 준다.
+  - 벌크 UPDATE(재처리 API의 조건부 해제 등)는 콜백이 돌지 않으므로 `UPDATED_AT`을 직접 넣는다.
+  - Oracle 엔티티에는 붙이지 않는다. 컬럼을 추가할 권한이 없다.
+- `ORDER_STAGE`에는 `MESSAGE_ORDER` FK가 없다. 수신 기록이 없는 주문에도 "사람이 확인" 표시를 남길 수 있다 (D-22).
+- 기존 H2 파일에는 새 컬럼(`ORDER_STAGE.COMPLETED_AT`, 네 테이블의 `CREATED_AT`·`UPDATED_AT`)이 없으므로 스키마에 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`를 둔다. NOT NULL인 공통 필드는 `DEFAULT CURRENT_TIMESTAMP`로 기존 행을 채운다 (D-26, D-27).
+
 > [!IMPORTANT]
-> 현재 상태는 H2에 두지 않는다. 조회할 때 Oracle `STATUS`와 H2 이력을 합친다 (D-04, D-13).
+> 같은 사실은 한 곳에만 둔다. 단계별 완료·"사람이 확인"·재시도 상태는 H2 `ORDER_STAGE`, 그 둘을 합친 "연계 완료"는 Oracle `STATUS=Y`다. 둘이 어긋나면 정해 둔 쪽을 따른다: H2는 둘 다 완료인데 `N`이면 마감 스케줄러가 `Y`를 쓰고, `Y`인데 H2 기록이 없으면(H2 유실) `Y`를 따른다 (D-13, D-26).
 
 ### 4.3 DataSource와 트랜잭션
 
@@ -414,7 +450,7 @@ DataSource가 3개라 엔티티 매니저와 트랜잭션 매니저도 3개다 (
 |---|---|---|---|
 | 트랜잭션 매니저 | `orderTx` | `shipmentTx` | `historyTx` |
 | 쓸 때 | `@OrderTx` | `@ShipmentTx` | `@HistoryTx` |
-| 커넥션 풀 | 5 | 2 | 기본값 |
+| 커넥션 풀 | 7 | 2 | 기본값 |
 | 풀 연결 대기 | 5초 | 5초 | 기본값 |
 
 > [!IMPORTANT]
@@ -570,7 +606,7 @@ flowchart TD
     L[FTP 목록에서 이 주문의 파일 찾기<br/>기본 이름과 _rN]:::app --> Q{파일이 있나?}
     Q -- 없음 --> U0[기본 이름으로 업로드]:::app
     Q -- 있음 --> Z{가장 큰 번호 파일의 크기가<br/>예상 크기와 같나?}
-    Z -- 같음 --> DONE[이미 완료<br/>업로드 없이 STATUS만 갱신]:::app
+    Z -- 같음 --> DONE[이미 완료<br/>업로드 없이 H2에 완료만 기록]:::app
     Z -- 다름 --> UR["반쪽 파일<br/>다음 번호 _r(N+1)로 업로드<br/>재시도 횟수에 포함"]:::fail
 
     classDef app fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
@@ -598,84 +634,118 @@ flowchart TD
   ```
 
 - 형식은 받는 쪽(회계)이 정해 주지 않아 CSV 표준과 엑셀 기본 동작에 맞췄다. 받는 쪽 요구가 생기면 설정과 이 표를 고친다.
-- 파일명 인코딩(한글)과 FTP/FTPS 여부는 제공 환경 읽기 전용 확인 후 정한다 (D-09, D-11).
+- 파일명은 UTF-8로 보낸다(FTP 제어 연결 인코딩). 서버가 `FEAT`에 `UTF8`을 알리고, 공용 폴더의 한글 파일명 64개가 모두 UTF-8로 읽혔다. 연결은 평문 FTP다 (D-09, §11.1).
 
 ### 5.3 IF-03 배송 등록
 
 - `SHIPMENT_TB`에 §4.1의 값으로 1행을 INSERT한다.
 - 먼저 H2 `ORDER_STAGE`(배송 단계)에 `SHIPMENT_ID`가 없으면 채번해 기록한다. 채번과 기록은 한 H2 트랜잭션이다 (D-03 보완, D-08).
-- INSERT 전에 `APPLICANT_KEY` + `ORDER_ID`로 기존 배송을 조회해, 있으면 INSERT 없이 `STATUS`만 갱신한다 (D-03).
-- 없으면 미리 배정한 번호로 INSERT한다. 재시도해도 같은 번호다.
-- INSERT에서 PK 충돌이 나면 새 트랜잭션에서 그 번호로 다시 조회한다. `ORDER_ID`·`ITEM_ID`·`ADDRESS`가 같으면 앞 시도가 늦게 커밋된 것이라 `STATUS=SHIPPED`, 다르면 재시도 없이 `SHIPMENT_FAILED` (D-03 보완, D-19).
+- INSERT 전에 `APPLICANT_KEY` + `ORDER_ID`로 기존 배송을 조회해, 있으면 INSERT 없이 H2에 배송 완료만 적는다 (D-03, D-26).
+- 없으면 미리 배정한 번호로 INSERT한 뒤 H2에 배송 완료를 적는다. 재시도해도 같은 번호다. `STATUS`는 건드리지 않는다(마감 스케줄러 몫).
+- INSERT에서 PK 충돌이 나면 새 트랜잭션에서 그 번호로 다시 조회한다. `ORDER_ID`·`ITEM_ID`·`ADDRESS`가 같으면 앞 시도가 늦게 커밋된 것이라 배송 완료, 다르면 재시도 없이 배송 `FAILED` (D-03 보완, D-19).
 
-### 5.4 IF-04 조회 API (읽기 전용)
+### 5.4 IF-04 조회 API와 재처리 API
 
 | 질문 | 요청 (D-18) | 응답 `data` |
 |---|---|---|
-| 🔎 이 주문 어디까지 갔나? | `GET /tracking/orders/{orderId}` | 현재 `STATUS`(Oracle), 메시지 ID, 수신 시각, 단계별(영수증·배송) 횟수·다음 시도·마지막 오류·파일명·`SHIPMENT_ID`, 시간순 이벤트 |
-| 🚨 막힌 주문이 있나? | `GET /tracking/orders?status=&from=&to=&after=&limit=` | 주문 목록과 마지막 오류 |
+| 🔎 이 주문 어디까지 갔나? | `GET /tracking/orders/{orderId}` | Oracle `STATUS`(N/Y), 단계별 상태 `receipt`·`shipment`(§6), 메시지 ID, 수신 시각, 단계별 횟수·다음 시도·마지막 오류·파일명·`SHIPMENT_ID`, 시간순 이벤트 |
+| 🚨 막힌 주문이 있나? | `GET /tracking/orders?receipt=&shipment=&from=&to=&after=&limit=` | 주문 목록과 마지막 오류. `receipt`·`shipment`는 단계별 상태 `PENDING`·`DONE`·`FAILED`(§6) |
 | 📨 보낸 메시지가 어떻게 됐나? | `GET /tracking/messages/{messageId}` | 상태, 응답 코드, 수신 응답과 같은 저장·거부·경고 목록, 이벤트 |
 | 🕳️ 처리가 안 끝난 메시지가 있나? | `GET /tracking/messages?state=&from=&to=&after=&limit=` | 메시지 목록 (상태, 응답 코드, 수신 시각) |
 
 - 응답 구조는 수신 API와 같다: 단건 `{ traceId, data }`, 목록 `{ traceId, data: [...], page: { nextAfter, limit } }`, 오류는 Problem Details (D-18).
 - **목록 페이징:** `limit` 기본 50, 최대 200. 다음 페이지는 `after`에 마지막으로 받은 `ORDER_ID` 또는 메시지 ID를 넣는다. `ORDER_ID`는 고정 길이라 문자열 순서가 번호 순서이고, 메시지 ID(TSID)는 시간순이다. 조회 중 새 주문이 들어와도 결과가 밀리지 않는다.
 - **메시지 목록이 필요한 이유:** 재전송이 오지 않아 `PROCESSING`·`FAILED`로 남은 메시지를 사람이 찾아야 한다 (D-04). 송신자가 응답을 못 받았다면 `messageId`도 모르므로 상태와 시간 범위로 찾는다.
-- `from`, `to`는 수신 시각(H2) 기준이다. 주문 목록은 Oracle `STATUS`로 대상을 고른 뒤 H2 수신 시각으로 거른다.
+- `from`, `to`는 수신 시각(H2) 기준이다.
+- **주문 목록은 단계별 상태로 먼저 거르고 나서 자른다.** Oracle에서 내 주문을 고르고(`PENDING`·`FAILED` 조건이 있으면 `N`만 보면 된다), H2 단계 기록과 합쳐 단계별 상태와 수신 시각으로 거른 **뒤에** `after`·`limit`을 적용한다. 자른 뒤에 거르면 한 페이지가 비거나 다음 커서가 틀린다.
+- H2 조회가 실패하면 오류로 응답한다. "기록 없음"으로 바꿔 보여 주지 않는다.
 - 주문 상세의 이벤트는 페이징하지 않는다. 한 주문의 이벤트는 많아야 수십 건이다.
 
-**운영자가 막힌 주문을 푸는 과정.** 조회는 API로, 되돌리기는 Oracle `STATUS`로 한다 (D-10, D-13).
+**재처리 API (운영자 쓰기 하나).** "사람이 확인" 표시를 지워 자동 처리를 다시 시작한다 (D-26).
+
+| 요청 | 하는 일 | 응답 |
+|---|---|---|
+| `POST /operations/orders/{orderId}/retry` | H2 한 트랜잭션: 표시가 있는 단계의 `ATTEMPTS=0`, `REACHED_FAILED` 해제, `NEXT_ATTEMPT_AT` 비움. 이어서 `OPERATOR_RESET` 이벤트 | `200` + 다시 시작한 단계 목록. 표시가 하나도 없으면 `409` |
+
+- **H2만 바꾼다.** Oracle `STATUS`에는 "사람이 확인"을 담을 곳이 없어(N/Y만), 표시도 해제도 H2 한 곳에서 끝난다. 그래서 이중 쓰기가 아니다. 예전에 "상태를 바꾸는 API는 없다"고 한 이유가 이 이중 쓰기였다 (D-13).
+- **단계를 받지 않고, 표시가 있는 단계를 모두 다시 시작한다.** 두 단계는 따로 처리되므로 둘 다 멈춰 있을 수 있다. 운영자는 원인을 고친 뒤 주문 단위로 부른다. 한쪽 원인만 고쳤다면 다른 쪽은 다시 5회 시도한 뒤 멈춘다.
+- **지우는 것은 재시도 상태뿐이다.** 영수증 완료 시각, 파일명, 미리 배정한 `SHIPMENT_ID`는 그대로 둔다. 번호를 지우면 결과 불명이던 앞 INSERT와 다른 번호로 중복 배송이 생길 수 있다 (D-03 보완).
+- **잠금 없이 조건부 갱신으로 한다.** 표시를 쓰는 쪽은 스케줄러, 지우는 쪽은 이 API뿐이고, 스케줄러는 표시된 주문을 고르지 않는다. API는 `WHERE REACHED_FAILED = TRUE`로만 지우므로, 스케줄러가 처리 중인(아직 표시가 없는) 주문에는 `409`가 난다. 건별 실패를 한 트랜잭션으로 쓰는 것(§4.2)이 이 판단의 전제다.
+- 이벤트는 다른 이벤트와 같이 따로 커밋한다. 이벤트 기록이 실패해도 재처리는 된다 (D-13).
+- 인증은 범위 밖이다. 이 API가 바꾸는 것은 재시도 횟수뿐이라, 잘못 불러도 자동 처리가 한 번 더 도는 데 그친다.
+
+**운영자가 막힌 주문을 푸는 과정.** 조회도 재처리도 API로 한다 (D-13, D-26).
 
 ```mermaid
 sequenceDiagram
     actor U as 운영자
-    participant API as 조회 API
-    participant O as ORDER_TB
-    participant APP as 영수증 스케줄러
+    participant API as 조회·재처리 API
     participant H as H2
+    participant APP as 영수증 스케줄러
+    participant O as ORDER_TB
 
-    U->>API: GET /tracking/orders?status=RECEIPT_FAILED
+    U->>API: GET /tracking/orders?receipt=FAILED
     API-->>U: A017 · 5회 실패 · 마지막 오류 "업로드 권한 오류"
     Note over U: 원인 해결 (예: FTP 권한 복구)
-    U->>O: UPDATE STATUS = RECEIVED
-    APP->>O: RECEIVED 주문 조회 → A017
-    APP->>H: 이 주문이 FAILED까지 갔었나? → 예
-    APP->>H: 운영자 재처리로 기록, 횟수 0부터
+    U->>API: POST /operations/orders/A017/retry
+    API->>H: 영수증 단계 표시 해제, 횟수 0, OPERATOR_RESET
+    API-->>U: 200 · 다시 시작한 단계 [영수증]
+    APP->>O: STATUS=N 주문 조회 → A017
+    APP->>H: 영수증 미완료, 표시 없음 → 대상
     APP->>APP: 영수증 처리 재개
 ```
 
-- 상태를 바꾸는 API는 없다. API가 쓰기까지 하면 Oracle과 H2를 함께 바꾸는 이중 쓰기가 된다.
-
 ## 6. 상태 전이
+
+**주문 하나에 상태가 셋이다 (D-26).** 영수증과 배송은 서로 기다리지 않고 따로 처리되며, 각자 단계 상태를 H2에 가진다. Oracle `STATUS`는 두 단계를 합친 요약 하나다.
+
+| 상태 | 저장 위치 | 값 | 쓰는 쪽 |
+|---|---|---|---|
+| 영수증 단계 | H2 `ORDER_STAGE` 영수증 행 | `PENDING` · `DONE` · `FAILED` | 영수증 스케줄러, 재처리 API |
+| 배송 단계 | H2 `ORDER_STAGE` 배송 행 | `PENDING` · `DONE` · `FAILED` | 배송 스케줄러, 재처리 API |
+| 연계 완료 | Oracle `ORDER_TB.STATUS` | `N` · `Y` | 수신(`N`), 마감 스케줄러(`Y`) |
+
+**단계 상태 (영수증·배송 같은 모양).** 저장된 필드에서 읽는다: `COMPLETED_AT`이 있으면 `DONE`, 없고 `REACHED_FAILED`이면 `FAILED`, 둘 다 아니면 `PENDING`. 행이 아직 없어도 `PENDING`이다.
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> RECEIVED: IF-01 수신 저장
-    RECEIVED --> RECEIPT_SENT: IF-02 업로드 성공<br/>(또는 이미 있음)
-    RECEIVED --> RECEIPT_FAILED: IF-02 5회째 실패<br/>(또는 수신 기록 없음)
-    RECEIPT_SENT --> SHIPPED: IF-03 등록 성공<br/>(또는 이미 있음)
-    RECEIPT_SENT --> SHIPMENT_FAILED: IF-03 5회째 실패<br/>(또는 수신 기록 없음)
-    RECEIPT_FAILED --> RECEIVED: 운영자 되돌림
-    SHIPMENT_FAILED --> RECEIPT_SENT: 운영자 되돌림
-    SHIPPED --> [*]
+    [*] --> PENDING: IF-01 수신 저장
+    PENDING --> DONE: 업로드·등록 성공<br/>(또는 이미 있음)
+    PENDING --> FAILED: 5회째 실패<br/>(또는 수신 기록 없음)
+    FAILED --> PENDING: 재처리 API
+    DONE --> [*]
 
     classDef ok fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
     classDef wait fill:#fff1dc,stroke:#c77d1a,color:#1a1a1a
     classDef fail fill:#fde4e4,stroke:#c0392b,color:#1a1a1a
-    class RECEIVED, RECEIPT_SENT wait
-    class SHIPPED ok
-    class RECEIPT_FAILED, SHIPMENT_FAILED fail
+    class PENDING wait
+    class DONE ok
+    class FAILED fail
 ```
 
-| 값 | 의미 | 다음에 처리하는 쪽 |
-|---|---|---|
-| 🟠 `RECEIVED` | 주문 저장됨, 영수증 대기 | 영수증 스케줄러 |
-| 🟠 `RECEIPT_SENT` | 영수증 업로드됨, 배송 대기 | 배송 스케줄러 |
-| 🟢 `SHIPPED` | 배송 등록됨, 완료 | — |
-| 🔴 `RECEIPT_FAILED` | 영수증 자동 처리 멈춤 (재시도 한도 초과, 또는 H2에 수신 기록 없음) | 운영자 |
-| 🔴 `SHIPMENT_FAILED` | 배송 자동 처리 멈춤 (재시도 한도 초과, 또는 H2에 수신 기록 없음) | 운영자 |
+**연계 완료 (Oracle `STATUS`).**
 
-영수증이 끝난 주문만 배송한다 (D-06). 한도 미만의 실패는 상태를 바꾸지 않고 H2에 횟수만 기록한다. `*_FAILED`는 주문 취소가 아니라 "사람이 확인할 주문"이다. H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 다시 해도 결과가 같아 재시도 없이 바로 `*_FAILED`가 된다 (D-22).
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> N: IF-01 수신 저장
+    N --> Y: 마감 스케줄러<br/>영수증 DONE 그리고 배송 DONE
+    Y --> [*]
+```
+
+| 단계 상태 | 뜻 | 다음에 처리하는 쪽 |
+|---|---|---|
+| 🟠 `PENDING` | 처리 대기, 또는 백오프 중 | 그 단계의 스케줄러 |
+| 🟢 `DONE` | 업로드·등록 완료 | — |
+| 🔴 `FAILED` | 자동 처리 멈춤 (재시도 한도 초과, 또는 H2에 수신 기록 없음). 사람이 확인 | 운영자 (재처리 API) |
+
+- **두 단계는 서로를 모른다.** FTP 장애로 영수증이 `FAILED`여도 배송은 `DONE`까지 간다. 순서를 정할 업무 요구가 없고, FTP 장애가 출고를 막지 않게 하기 위해서다. 예전의 "영수증 → 배송 순차"(D-06)는 `STATUS` 한 칸에 두 진행을 담아야 해서 고른 것이었다 (D-26).
+- **`Y`는 마감 스케줄러만 쓴다.** 영수증·배송 스케줄러는 자기 단계만 적고 끝난다. 두 단계가 모두 `DONE`인 `N` 주문을 마감 스케줄러가 찾아 `Y`로 바꾼다. 완료를 적은 뒤 `Y`를 쓰기 전에 멈춘 주문도 같은 조건으로 다음 주기에 찾는다.
+- **`Y`는 "다 끝났으니 다시 보지 마라"는 표시다.** 끝난 주문이 작업 대상에서 빠지고, H2가 빈 채로 실행해도(다른 PC 등) 끝난 주문을 다시 보거나 실패로 표시하지 않는다. 지울 수 없는 Oracle에 남으므로 H2를 잃어도 남는다.
+- 한도 미만의 실패는 단계 상태를 바꾸지 않고 H2에 횟수만 기록한다. `FAILED`는 주문 취소가 아니라 "사람이 확인할 단계"다.
+- H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 다시 해도 결과가 같아 재시도 없이 바로 그 단계가 `FAILED`가 된다. 마지막 오류에 "H2에 수신 기록 없음"이 남는다 (D-22).
+- 작업 대상은 `STATUS=N` **행**에서 시작한다. H2에만 있고 Oracle에 없는 주문(메시지가 `PROCESSING`·`FAILED`라 저장되지 않음)은 단계 상태가 없고, 메시지 조회(`GET /tracking/messages?state=`)로 찾는다. Oracle에 저장됐는데 메시지가 아직 `PROCESSING`인 주문은 후속 처리를 막지 않는다.
 
 ## 7. 처리 흐름
 
@@ -698,7 +768,7 @@ flowchart TD
     D --> E{파싱·변환<br/>인코딩 판단, 루트 감싸기, USER_ID 조인}
     E -- 실패 --> R2[H2: FAILED 기록<br/>400 응답]:::fail
     E -- 성공 --> F[주문별 검증 → 거부·경고 분리<br/>주문번호 미리 배정 + MESSAGE_ORDER 기록<br/>같은 H2 트랜잭션]:::app
-    F --> G[쇼핑몰 DB: ORDER_TB INSERT<br/>전체 한 트랜잭션, STATUS=RECEIVED]:::app
+    F --> G[쇼핑몰 DB: ORDER_TB INSERT<br/>전체 한 트랜잭션, STATUS=N]:::app
     G -- "PK 충돌<br/>새 트랜잭션에서" --> K
     G -- 성공 --> H[H2: COMPLETED, 응답 본문 기록]:::store
     G -- "DB 연결·자원 오류<br/>결과 불명 포함" --> R3[H2: FAILED 기록<br/>503 응답 → 송신자 재전송]:::fail
@@ -794,15 +864,26 @@ sequenceDiagram
 - **INSERT에서 PK 충돌이 나도 바로 `500`이 아니다 (D-19).** 앞 요청이 `ReadTimeout`으로 포기했어도 Oracle 서버에서는 그 커밋이 늦게 끝날 수 있다. 그러면 재전송의 조회는 "없음"을 보고 INSERT하다가 앞 요청 자신의 행과 부딪힌다. 새 트랜잭션에서 다시 조회해 원본과 같으면 완료 `200`이다.
 - 커밋 중 타임아웃은 저장됐는지 알 수 없는 "결과 불명"이다. 롤백됐다고 단정하지 않고 `503`으로 응답해, 재전송 때 조회로 확인한다. 그 연결은 풀에 돌려보내지 않는다.
 
-### 7.2 IF-02 영수증 / IF-03 배송 (스케줄러)
+### 7.2 IF-02 영수증 / IF-03 배송 / 마감 (스케줄러)
 
-두 스케줄러 모두 `fixedDelay` 30초로 돌고, 한 주기에 최대 100건을 `ORDER_ID` 오름차순으로 처리한다 (D-12).
+스케줄러는 셋이다. 모두 `fixedDelay` 30초로 돌고, 한 주기에 최대 100건을 `ORDER_ID` 오름차순으로 처리한다 (D-12).
 
-**한 주기의 순서.**
+| 스케줄러 | 대상 | 하는 일 | 쓰는 곳 |
+|---|---|---|---|
+| 영수증 (IF-02) | `STATUS=N`, 영수증 `PENDING` | 업로드 → H2 영수증 완료 | FTP, H2 |
+| 배송 (IF-03) | `STATUS=N`, 배송 `PENDING` | INSERT → H2 배송 완료 | 운송 Oracle, H2 |
+| 마감 | `STATUS=N`, 영수증·배송 모두 `DONE` | `STATUS` N→Y (조건부) | 쇼핑몰 Oracle |
+
+- **스레드는 3개, 스케줄러마다 하나다.** 영수증이 느린 FTP에 묶여 있어도 배송과 마감은 제 주기에 돈다. `fixedDelay`라 같은 스케줄러는 자기 자신과 겹치지 않는다 (D-12, D-26).
+- **동시에 돌아도 부딪히지 않는다.** 영수증과 배송은 H2에서 서로 다른 행을 쓰고, 마감은 H2를 읽기만 하며 `Y`는 `WHERE STATUS = 'N'` 조건부로 쓴다. 재처리 API는 표시가 있는 행만 조건부로 지운다(§5.4).
+- 마감은 외부 연결이 없어 연결 실패가 없다. 쇼핑몰 Oracle·H2 장애면 그 주기를 끝내고 다음 주기에 다시 한다. 갱신이 0건이면(이미 `Y`) 오류로 보지 않는다.
+- `Y`는 두 단계가 끝난 뒤 최대 한 주기(30초) 늦게 써진다. 그사이에도 각 스케줄러는 자기 단계가 `DONE`인 주문을 고르지 않으므로 다시 처리되지 않는다.
+
+**영수증·배송 한 주기의 순서.**
 
 ```mermaid
 flowchart LR
-    S1["① 대상 조회<br/>Oracle STATUS로<br/>ORDER_ID 전부"]:::store --> S2["② 되돌림 감지 → 백오프 제외<br/>되돌렸으면 횟수 0<br/>H2 다음 시도 시각"]:::store
+    S1["① 대상 조회<br/>Oracle STATUS=N의<br/>ORDER_ID 전부"]:::store --> S2["② H2로 거르기<br/>내 단계가 PENDING인 것만<br/>백오프 중 제외"]:::store
     S2 --> S3["③ 앞에서 100건<br/>ORDER_ID 오름차순"]:::app
     S3 --> S4{"④ 대상이 있으면<br/>FTP·운송 DB 연결"}
     S4 -- 실패 --> SK["주기 통째로 건너뜀<br/>횟수 증가 없음"]:::fail
@@ -813,12 +894,12 @@ flowchart LR
     classDef fail fill:#fde4e4,stroke:#c0392b,color:#1a1a1a
 ```
 
-- ②를 ③보다 먼저 한다. 100건을 먼저 자르고 거르면, 그 100건이 모두 백오프 중일 때 뒤의 정상 주문이 계속 기다린다 (D-12).
-- ② 안에서는 되돌림 감지를 먼저 한다. 되돌린 주문에 예전 다음 시도 시각이 남아 있어도 기다리지 않고 같은 주기에 처리된다 (D-10).
+- 두 스케줄러는 같은 `STATUS=N` 집합을 읽고 H2에서 각자 자기 단계만 본다. 상대 단계의 상태는 보지 않는다 (D-26).
+- ②를 ③보다 먼저 한다. 100건을 먼저 자르고 거르면, 그 100건이 모두 백오프 중이거나 `FAILED`·`DONE`일 때 뒤의 정상 주문이 계속 기다린다 (D-12).
+- 재처리 API가 표시와 다음 시도 시각을 함께 지우므로, 재처리한 주문은 다음 주기에 바로 대상이 된다. 예전의 "되돌림 감지"는 필요 없다 (D-26).
 - 한 주문의 실패가 다른 주문을 막지 않는다. 단, 연결이 끊기거나 쇼핑몰 Oracle·H2가 안 되면 남은 주문은 처리하지 않고 그 주기를 끝낸다. 같은 이유로 모두 실패하기 때문이다 (D-22).
-- H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 재시도 없이 바로 `*_FAILED`로 바꾼다. 수신일시를 지어내지 않고, 복구는 운영자가 한다 (D-22).
+- H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 재시도 없이 바로 그 단계에 "사람이 확인" 표시를 남긴다. 수신일시를 지어내지 않고, 복구는 운영자가 한다 (D-22).
 - FTP 연결은 주기당 1회, 처리할 주문이 있을 때만 맺는다. 파일마다 접속하면 느리고 상대 서버에 부담이 된다 (D-12).
-- 스케줄러 스레드는 1개(설정에 명시)라 IF-02와 IF-03이 같은 스레드에서 차례로 돈다. 한쪽이 멈춰 다른 쪽을 막는 시간의 상한은 타임아웃이 정한다 (D-12, D-19).
 - 영수증·배송은 처리 전에 `inbound`의 서비스로 수신 기록을 조회한다. 영수증은 여기서 수신일시를 얻는다 (D-21).
 
 **주문 하나의 처리.**
@@ -829,25 +910,31 @@ flowchart TD
         P2{FTP 목록: 이 주문의 파일이 있고<br/>가장 큰 번호의 크기가 맞나?}
         P2 -- 예 --> P4
         P2 -- 아니오 --> P3[영수증 CSV 생성 → 업로드<br/>반쪽 파일이 있으면 _rN]:::app
-        P3 -- 성공 --> P4[STATUS=RECEIPT_SENT]:::ok
+        P3 -- 성공 --> P4[H2: 영수증 완료 기록<br/>영수증 DONE]:::ok
         P3 -- 실패 --> P5{5회째 실패?}
         P5 -- 아니오 --> P6[H2: 횟수·다음 시도 시각<br/>백오프 1·2·4·8분]:::store
-        P5 -- 예 --> P7[STATUS=RECEIPT_FAILED<br/>성공 후 H2 표시]:::fail
+        P5 -- 예 --> P7[H2: 횟수와 표시를 한 트랜잭션<br/>영수증 FAILED]:::fail
     end
     subgraph IF03[IF-03 배송 스케줄러]
         S1[H2: SHIPMENT_ID가 없으면<br/>채번·기록]:::store --> S2
         S2{같은 ORDER_ID 배송이 있나?}
         S2 -- 예 --> S4
         S2 -- 아니오 --> S3[기록해 둔 SHIPMENT_ID로 INSERT]:::app
-        S3 -- 성공 --> S4[STATUS=SHIPPED]:::ok
+        S3 -- 성공 --> S4[H2: 배송 완료 기록<br/>배송 DONE]:::ok
         S3 -- PK 충돌 --> S8{그 번호로 다시 조회<br/>같은 배송인가?}
         S8 -- 예 --> S4
         S8 -- 아니오 --> S7
         S3 -- 실패 --> S5{5회째 실패?}
         S5 -- 아니오 --> S6[H2: 횟수·다음 시도 시각]:::store
-        S5 -- 예 --> S7[STATUS=SHIPMENT_FAILED<br/>성공 후 H2 표시]:::fail
+        S5 -- 예 --> S7[H2: 횟수와 표시를 한 트랜잭션<br/>배송 FAILED]:::fail
     end
-    P4 -. 다음 주기 .-> S1
+    subgraph CL[마감 스케줄러]
+        C1{STATUS=N이고<br/>영수증·배송 모두 DONE?}
+        C1 -- 예 --> C2[Oracle STATUS N→Y<br/>조건부]:::ok
+        C1 -- 아니오 --> C3[그대로 둠]:::store
+    end
+    P4 -. 다음 주기 .-> C1
+    S4 -. 다음 주기 .-> C1
 
     classDef app fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
     classDef store fill:#fff1dc,stroke:#c77d1a,color:#1a1a1a
@@ -856,7 +943,9 @@ flowchart TD
 ```
 
 - 배송 번호를 INSERT 전에 미리 배정하는 이유: 커밋 중 타임아웃으로 결과를 모를 때, 다음 주기의 조회에는 진행 중인 커밋이 보이지 않는다. 새 번호로 INSERT하면 앞 커밋이 늦게 끝났을 때 배송이 두 건이 된다. 같은 번호를 쓰면 PK로 부딪혀 한 건으로 끝난다 (D-03 보완).
-- `*_FAILED`는 Oracle `STATUS`를 먼저 바꾸고, 성공한 뒤 H2에 "FAILED까지 갔음"을 표시한다. 반대 순서로 하면 Oracle 갱신이 실패했을 때 다음 주기에 운영자 되돌림으로 오인한다 (D-10).
+- "사람이 확인" 표시는 H2 한 곳에만 쓴다. 예전에는 Oracle `STATUS`와 H2 두 곳에 써서 쓰는 순서를 정해야 했지만(D-10 Q-20), 이제 그 문제가 없다 (D-26).
+- 업로드 뒤 영수증 완료 기록 전에 멈추면, 다음 주기에 FTP 목록에서 같은 크기의 파일을 찾아 업로드 없이 완료만 적는다. 배송 INSERT 뒤 배송 완료 기록 전에 멈추면, 다음 주기에 기존 배송을 찾아 완료만 적는다 (D-03).
+- 두 단계 완료 뒤 `Y`를 쓰기 전에 멈추면, 마감 스케줄러가 다음 주기에 같은 조건으로 찾아 `Y`를 쓴다. 평소 처리와 복구가 같은 경로다 (D-26).
 - 모든 단계의 결과는 H2 처리 이벤트로 남는다 (D-13).
 
 ### 7.3 앱 시작
@@ -892,12 +981,12 @@ flowchart LR
 ```mermaid
 flowchart TD
     E[실패 발생]:::fail --> C{그 주문 자체의 문제인가?}
-    C -- "아니오<br/>FTP 접속·로그인, 운송 DB 연결·타임아웃<br/>쇼핑몰 Oracle·H2 장애, STATUS 갱신 실패" --> CS[연결 실패·우리 쪽 저장소 장애<br/>그 주기 종료<br/>주문별 횟수 증가 없음]:::store
+    C -- "아니오<br/>FTP 접속·로그인, 운송 DB 연결·타임아웃<br/>쇼핑몰 Oracle·H2 장애, 완료 기록 실패" --> CS[연결 실패·우리 쪽 저장소 장애<br/>그 주기 종료<br/>주문별 횟수 증가 없음]:::store
     C -- "예<br/>연결된 뒤 그 파일 업로드 실패<br/>그 행의 SQL 오류" --> OS[건별 실패<br/>그 주문만 횟수 +1]:::app
     OS --> N{5회째?}
     N -- 아니오 --> B[백오프 후 재시도]:::app
-    N -- 예 --> FL[STATUS = *_FAILED<br/>사람이 확인]:::fail
-    FL -. 운영자가 STATUS 되돌림 .-> R[앱이 감지해 횟수 0부터]:::app
+    N -- 예 --> FL[그 단계 FAILED<br/>사람이 확인]:::fail
+    FL -. 운영자가 재처리 API .-> R[횟수 0부터 다시]:::app
 
     classDef app fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
     classDef store fill:#fff1dc,stroke:#c77d1a,color:#1a1a1a
@@ -905,9 +994,9 @@ flowchart TD
 ```
 
 > [!TIP]
-> 나누는 이유: 상대 시스템이 점검으로 30분 내려가면, 구분하지 않을 경우 대기 중인 주문 전체가 한도를 소진하고 한꺼번에 `*_FAILED`가 된다. 주문에는 문제가 없는데 운영자가 전부 손으로 되돌려야 한다.
+> 나누는 이유: 상대 시스템이 점검으로 30분 내려가면, 구분하지 않을 경우 대기 중인 주문 전체가 한도를 소진하고 한꺼번에 `FAILED`가 된다. 주문에는 문제가 없는데 운영자가 전부 하나씩 재처리해야 한다.
 
-- 연결 실패는 상대 시스템(FTP, 운송 DB)에 닿지 못한 경우, 우리 쪽 저장소 장애는 쇼핑몰 Oracle·H2가 안 되거나 `STATUS` 갱신이 실패한 경우다. 정의는 다르지만 처리는 같다 (D-22).
+- 연결 실패는 상대 시스템(FTP, 운송 DB)에 닿지 못한 경우, 우리 쪽 저장소 장애는 쇼핑몰 Oracle·H2가 안 되거나 처리 뒤 H2 단계 완료 기록이 실패한 경우다. 정의는 다르지만 처리는 같다 (D-22).
 - 운송 DB는 Spring 예외 분류의 연결·자원 계열이면 연결 실패, 나머지는 건별 실패로 본다.
 - FTP 업로드 도중 연결이 끊기면 그 주문에 건별 실패 1회를 세고 주기를 끝낸다. 원인이 파일인지 네트워크인지 구분할 수 없다.
 - FTP·운송 DB 연결 실패의 이벤트는 상태가 바뀔 때만 남긴다("시작"과 "복구"). 하루 장애에 30초마다 쌓이면 2,880건이 된다. ERROR 로그는 매 주기 남긴다 (D-22).
@@ -921,7 +1010,7 @@ timeline
     1분 : 2회 실패 : 2분 대기
     3분 : 3회 실패 : 4분 대기
     7분 : 4회 실패 : 8분 대기
-    15분 : 5회 실패 : *_FAILED, 사람이 확인
+    15분 : 5회 실패 : 그 단계 FAILED, 사람이 확인
 ```
 
 스케줄러가 30초마다 돌므로 실제 재시도는 대기 시간보다 최대 30초 늦을 수 있다.
@@ -947,32 +1036,38 @@ timeline
 | 시작 | `APPLICANT_KEY`·지원자명 없음 | 기동 실패. `config/`를 확인 | D-23 |
 | 시작 | XML 파서 보안 설정 적용 실패 | 기동 실패 | D-20 |
 | 영수증·배송 | FTP·운송 DB 연결 실패 | 주기 건너뜀. 주문별 횟수 증가 없음, `FAILED`를 만들지 않음. 이벤트는 시작·복구 때만 | D-10, D-22 |
-| 영수증·배송 | 쇼핑몰 Oracle·H2 장애, 처리 후 `STATUS` 갱신 실패 | 그 주기 종료. 횟수 안 셈. `STATUS`는 다음 주기 사전 확인으로 갱신 | D-03, D-22 |
-| 영수증·배송 | 주문 하나의 업로드·INSERT 실패 (건별 실패) | 지수 백오프 1·2·4·8분, 5회째 실패면 `*_FAILED` | D-10 |
-| 영수증·배송 | H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문 | 재시도 없이 `*_FAILED`, `MISSING_RECORD` 이벤트. 운영자가 데이터 복구 후 되돌림 | D-22 |
+| 영수증·배송 | 쇼핑몰 Oracle·H2 장애, 처리 후 H2 단계 완료 기록 실패 | 그 주기 종료. 횟수 안 셈. 다음 주기 사전 확인으로 완료만 기록 | D-03, D-22, D-26 |
+| 영수증·배송 | 주문 하나의 업로드·INSERT 실패 (건별 실패) | 지수 백오프 1·2·4·8분, 5회째 실패면 그 단계 `FAILED`. 횟수와 표시는 한 H2 트랜잭션 | D-10, D-26 |
+| 영수증·배송 | H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문 | 재시도 없이 그 단계 `FAILED`, `MISSING_RECORD` 이벤트. 운영자가 데이터 복구 후 재처리 API | D-22, D-26 |
 | 배송 | 운송 DB 커밋 중 타임아웃 (결과 불명) | 연결 실패로 주기 종료. 다음 주기에 미리 배정한 같은 `SHIPMENT_ID`로 다시 시도해, 앞 커밋이 늦게 끝났으면 PK 충돌로 드러난다 | D-03, D-19, D-22 |
-| 배송 | INSERT PK 충돌 | 롤백 후 그 번호로 다시 조회·비교. 같으면 `SHIPPED`, 다르면 재시도 없이 `SHIPMENT_FAILED` + 이벤트 | D-03, D-19 |
+| 배송 | INSERT PK 충돌 | 롤백 후 그 번호로 다시 조회·비교. 같으면 배송 완료, 다르면 재시도 없이 배송 `FAILED` + 이벤트 | D-03, D-19 |
 | 영수증 | 반쪽 파일 발견 | 다음 번호 `_r{N+1}`로 재업로드. 재시도 횟수에 포함 | D-09, D-10 |
-| 영수증·배송 | 처리 후 `STATUS` 갱신 전 중단 | 다음 주기에 사전 확인(FTP 목록, `SHIPMENT_TB` 조회)으로 중복 없이 `STATUS`만 갱신 | D-03 |
-| 영수증·배송 | 조건부 갱신 0건 (예상과 다른 상태) | 갱신하지 않고 이벤트로 남김 | D-06 |
+| 영수증·배송 | 처리 후 완료 기록 전 중단 | 다음 주기에 사전 확인(FTP 목록, `SHIPMENT_TB` 조회)으로 중복 없이 완료만 기록 | D-03, D-26 |
+| 마감 | 쇼핑몰 Oracle·H2 장애 | 그 주기 종료. 다음 주기에 같은 조건으로 다시 | D-22, D-26 |
+| 마감 | N→Y 조건부 갱신 0건 (이미 `Y`) | 오류로 보지 않고 넘어감 | D-26 |
+| 영수증 | FTP 장애·영수증 `FAILED` | 영수증만 멈춤. 배송은 그대로 진행. `Y`는 영수증이 끝난 뒤 | D-26 |
 | 영수증·배송 | 상대가 응답 없이 멈춤 | 접속·전송 타임아웃으로 실패로 바꿔 위 규칙을 따른다 | D-12, D-19 |
-| 운영 | `*_FAILED` 주문 원인 해결 | 운영자가 Oracle `STATUS`를 되돌림 → 앱이 감지해 횟수 초기화 | D-10 |
+| 운영 | 단계 `FAILED` 원인 해결 | 재처리 API로 H2 표시와 횟수를 지움 → 다음 주기에 다시 처리 | D-26 |
+| 운영 | 재처리 API: 표시가 하나도 없음 | `409`. 바꾸지 않음 | D-26 |
+| 운영 | H2를 옛 백업으로 복원 | 앱을 멈춘 채 복원하고, 켜기 전에 `STATUS=N` 주문을 FTP 목록·`SHIPMENT_TB`와 대조 | D-26 |
 
-**중단 복구 예시: 배송 INSERT 커밋 후 `STATUS` 갱신 직전에 앱이 죽으면** (D-03).
+**중단 복구 예시: 배송 INSERT 커밋 후 H2 완료 기록 직전에 앱이 죽으면** (D-03).
 
 ```mermaid
 sequenceDiagram
     participant APP as 배송 스케줄러
     participant T as SHIPMENT_TB
     participant O as ORDER_TB
+    participant H as H2
 
     APP->>T: INSERT A017 배송 (커밋됨)
-    Note over APP: 💥 STATUS 갱신 전에 중단
+    Note over APP: 💥 H2 완료 기록 전에 중단
     Note over APP: 재시작 후 다음 주기
-    APP->>O: RECEIPT_SENT 주문 조회 → A017 다시 나옴
+    APP->>O: STATUS=N 주문 조회 → A017
+    APP->>H: 배송 PENDING → 대상
     APP->>T: A017 배송이 있나? → 있음
-    APP->>O: INSERT 없이 STATUS=SHIPPED
-    Note over APP,O: 결과는 중단이 없었을 때와 같다
+    APP->>H: INSERT 없이 배송 완료 기록
+    Note over APP,H: 결과는 중단이 없었을 때와 같다. Y는 마감 스케줄러가 쓴다
 ```
 
 **로그.** 모든 로그에 `traceId`, `ORDER_ID`, 메시지 ID를 MDC 키로 붙인다. `traceId`는 요청마다 만들어 응답에도 돌려준다 (D-18). 로그는 개발자용이고, 운영자는 조회 API를 본다 (D-13).
@@ -982,14 +1077,14 @@ sequenceDiagram
 | 분류 | 설정 | 기본값 | 보관 위치 | 근거 |
 |---|---|---|---|---|
 | 지원자 | `APPLICANT_KEY` | — (없으면 기동 실패) | 제공 환경: `config/connection.json` · 로컬: 저장소의 가짜 값 | D-01, D-23 |
-| 지원자 | 지원자명 (파일명용) | — (없으면 기동 실패) | 제공 환경: `config/bootstrap.properties` · 로컬: 저장소의 가짜 값 | D-09, D-23 |
+| 지원자 | 지원자명 (파일명용) | — (없으면 기동 실패) | 제공 환경: `config/bootstrap.properties`(UTF-8로 직접 읽음) · 로컬: 저장소의 가짜 값 | D-09, D-23 |
 | 쇼핑몰 DB | URL, 계정 | — | 제공 환경: `config/` (Git 제외) · 로컬: 저장소 | D-02, D-14 |
 | 운송 DB | URL, 계정 | — | 제공 환경: `config/` · 로컬: 저장소 | D-02, D-14 |
 | H2 | 파일 경로 | 프로필별 `./data/local/history`, `./data/provided/history`. 로컬 리허설의 수신 기록·채번이 제공 환경 실행에 섞이지 않게 나눈다 | 저장소 | D-04, D-19 |
 | H2 | `WRITE_DELAY` | 0 (커밋 즉시 기록) | 저장소 | D-19 |
-| FTP | 호스트, 포트, 계정, 업로드 경로, FTP/FTPS, 파일명 인코딩 | 인코딩은 확인 후 | 제공 환경: `config/` · 로컬: 저장소 | D-09 |
+| FTP | 호스트, 포트, 계정, 업로드 경로, 파일명 인코딩 | 평문 FTP, 파일명 UTF-8 (§11.1) | 제공 환경: `config/` · 로컬: 저장소 | D-09 |
 | Oracle (두 DB) | 접속 타임아웃, 응답 읽기 타임아웃 | 3초, 10초 | 저장소 | D-12, D-19 |
-| Oracle | 커넥션 풀 크기 | 쇼핑몰 5, 운송 2 (고정 크기) | 저장소 | D-19 |
+| Oracle | 커넥션 풀 크기 | 쇼핑몰 7, 운송 2 (고정 크기) | 저장소 | D-19, D-26 |
 | Oracle | 풀 연결 대기 상한 | 5초 | 저장소 | D-19 |
 | FTP | 접속 / 명령 응답 / 데이터 타임아웃 | 5초 / 30초 / 30초 | 저장소 | D-12, D-19 |
 | 수신 | 기본 인코딩 (표시가 없을 때) | EUC-KR (MS949로 디코딩) | 저장소 | D-04, D-20 |
@@ -1001,7 +1096,7 @@ sequenceDiagram
 | 영수증 | 내용 인코딩 | UTF-8 + BOM | 저장소 | D-09 |
 | 스케줄러 | 주기 (`fixedDelay`) | 30초 | 저장소 | D-12 |
 | 스케줄러 | 주기당 처리 건수 | 100 | 저장소 | D-12 |
-| 스케줄러 | 스레드 수 | 1 (명시) | 저장소 | D-12, D-19 |
+| 스케줄러 | 스레드 수 | 3 (영수증·배송·마감에 하나씩, 명시) | 저장소 | D-12, D-19, D-26 |
 | 재시도 | 최대 시도 횟수 (첫 시도 포함) | 5 | 저장소 | D-10 |
 | 재시도 | 백오프 시작 간격, 배수 | 1분, 2배 (대기는 4번: 1·2·4·8분) | 저장소 | D-10 |
 
@@ -1012,13 +1107,14 @@ sequenceDiagram
 
 - 표에 없는 값(H2 잠금 대기, 커넥션 수명)은 라이브러리 기본값을 쓴다. 기본값이 무한 대기이거나, 기본값이 다른 값의 의도를 무너뜨리는 곳에만 정했다 (D-19).
 - 커넥션 풀 크기는 공용 계정에 맞춘 값이다. 두 풀이 같은 계정에 붙어, 기본값(10)이면 앱 하나가 늘 20개를 붙잡는다 (D-19).
+  - 쇼핑몰 7 = 동시 수신 2~3 + 스케줄러 3(셋 다 쇼핑몰 Oracle을 읽음) + 조회 1. 운송 2 = 배송 스케줄러 1 + 시작 동기화 (D-26).
 
 ## 10. 실행 환경
 
 ```mermaid
 flowchart LR
     L["① 로컬 개발·테스트<br/>컨테이너 Oracle·FTP<br/>운영과 같은 권한"]:::local --> R["② 제공 환경 확인<br/>읽기 전용<br/>길이 단위·인코딩·FTPS"]:::prod
-    R --> F["③ 최종 실행 1회<br/>제출 전<br/>63건 모두 SHIPPED"]:::prod
+    R --> F["③ 최종 실행 1회<br/>제출 전<br/>63건 모두 STATUS=Y"]:::prod
     F --> I["④ 면접 당일 시연<br/>새 ORDER_ID 추가"]:::prod
 
     classDef local fill:#e3f4e8,stroke:#3c8d5a,color:#1a1a1a
@@ -1034,13 +1130,14 @@ flowchart LR
 | 제공 환경 | 과제 Oracle | 과제 FTP | 읽기 전용 확인 → 제출 전 최종 실행 1회 → 면접 당일 시연 | D-11 |
 
 - 로컬은 운영 조건을 재현한다: 앱 계정 권한은 SELECT·INSERT·UPDATE만, 다른 `APPLICANT_KEY` 행을 미리 넣은 공용 테이블, FTP는 목록·업로드만 (D-14).
-- 제공 환경 최종 실행의 기대 결과 (샘플 기준): 저장 63건, 거부 7건, 경고 4건, 영수증 63개, 배송 63건, 모두 `SHIPPED` (D-11).
+  - 제공 환경에서 확인한 제약도 로컬 초기화 스크립트에 넣는다: `STATUS IN ('N', 'Y')` CHECK, `ORDER_ID`·`SHIPMENT_ID` 형식 CHECK, `CREATE_TIME`·`CREATE_DATE` 컬럼(기본값 `SYSDATE`) (§11.1, D-26).
+- 제공 환경 최종 실행의 기대 결과 (샘플 기준): 저장 63건, 거부 7건, 경고 4건, 영수증 63개, 배송 63건, 모두 `STATUS=Y` (D-11).
 - 다른 PC(시연용 노트북 등)에서 실행할 때는 `config/`를 복사한다. 과제 API는 다시 부르지 않는다. 다시 불러도 같은 응답이 오는 것은 확인했다(2026-10-31). `data/`는 옮기지 않아도 채번이 Oracle에 맞춰진다 (D-22, D-23).
 - 제공 환경에서 쓰기 전에 확인할 것은 §11에 모았다 (D-11).
 
 ## 11. 제공 환경 확인 후 정할 것
 
-설계 쟁점(Q-01~Q-24)은 모두 결정했고, 이력은 [decisions.md](decisions.md)의 "쟁점 이력"에 있다. 아래는 제공 환경을 **쓰기 없이** 확인해야 정할 수 있는 값이다 (D-11). 그 전까지는 "지금 가정"대로 로컬에서 개발한다.
+설계 쟁점(Q-01~Q-26)은 모두 결정했고, 이력은 [decisions.md](decisions.md)의 "쟁점 이력"에 있다. 아래는 제공 환경을 **쓰기 없이** 확인해야 정할 수 있는 값이다 (D-11). 그 전까지는 "지금 가정"대로 로컬에서 개발한다.
 
 | 확인할 것 | 지금 가정 | 확인 방법 | 결과로 정하는 것 | 근거 |
 |---|---|---|---|---|
@@ -1050,7 +1147,7 @@ flowchart LR
 | FTP / FTPS | FTP | 접속, `FEAT` 응답 | FTP 클라이언트 구성 | D-09, D-11 |
 | 한글 파일명 인코딩 | UTF-8 | 공용 폴더의 다른 한글 파일명, `FEAT`의 UTF8 지원 | `OPTS UTF8 ON` 사용 여부, 제어 연결 인코딩 | D-09 |
 | 응답 시간 | 평소 1초 미만 | 접속 확인 때 측정 | 타임아웃 값 조정 | D-19 |
-| 공용 계정 세션 한도 | 내 연결 7개(쇼핑몰 5 + 운송 2)를 받을 여유가 있다 | `USER_RESOURCE_LIMITS`의 `SESSIONS_PER_USER` (조회할 수 있을 때) | 커넥션 풀 크기 조정 | D-11, D-19 |
+| 공용 계정 세션 한도 | 내 연결 9개(쇼핑몰 7 + 운송 2)를 받을 여유가 있다 | `USER_RESOURCE_LIMITS`의 `SESSIONS_PER_USER` (조회할 수 있을 때) | 커넥션 풀 크기 조정 | D-11, D-19 |
 
 - ~~구현하며 로컬에서 확인할 것: `@TenantId`와 복합 PK, Oracle 예외 분류~~ → 확인함 (2026-11-01, D-25). `@TenantId`는 동작하고, `ORA-12899`는 무결성 위반이 아니라 `JpaSystemException`으로 나온다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어써 원인 사슬 전체로 판정한다.
 
@@ -1058,8 +1155,8 @@ flowchart LR
 
 `./gradlew checkProvided`로 확인했다. Oracle은 읽기 전용 트랜잭션에서 SELECT만, FTP는 로그인·FEAT·목록 조회만 했다. 제공 환경에 쓴 것은 없다.
 
-> [!CAUTION]
-> **`ORDER_TB.STATUS`에 CHECK 제약 `STATUS IN ('N', 'Y')`가 있다.** §6의 상태 5개(`RECEIVED` 등)는 저장할 수 없다. 상태 설계를 다시 정해야 한다 (미결정).
+> [!IMPORTANT]
+> **`ORDER_TB.STATUS`에 CHECK 제약 `STATUS IN ('N', 'Y')`가 있다.** 처음 설계한 상태 5개(`RECEIVED` 등)는 저장할 수 없었다. → D-26으로 결정: `STATUS`는 연계 완료 플래그(N/Y)로 쓰고, 영수증·배송은 따로 처리하며 단계별 상태를 H2 `ORDER_STAGE`에 둔다. 두 단계가 모두 끝나면 마감 스케줄러가 `Y`를 쓴다 (§6).
 
 | 확인할 것 | 지금 가정 | 확인 결과 | 영향 |
 |---|---|---|---|
@@ -1069,15 +1166,15 @@ flowchart LR
 | FTP / FTPS | FTP | 평문 FTP 로그인 가능, `AUTH TLS`도 지원 | 평문 FTP로 간다. FTPS는 쓰지 않는다 |
 | 한글 파일명 인코딩 | UTF-8 | FEAT에 `UTF8`. 공용 폴더의 한글 파일명 64개가 모두 UTF-8로 읽힘(MS949로는 0개) | 가정대로 |
 | 응답 시간 | 평소 1초 미만 | Oracle 접속 0.5초·쿼리 2ms, FTP 접속 13ms·목록 0.1초 | 타임아웃 값 그대로 |
-| 공용 계정 세션 한도 | 7개 여유 | `SESSIONS_PER_USER = UNLIMITED` | 풀 크기 그대로 |
+| 공용 계정 세션 한도 | 9개 여유 | `SESSIONS_PER_USER = UNLIMITED` | 풀 크기 그대로 (쇼핑몰 7 + 운송 2, D-26) |
 
 **PPT에 없던 것.**
 
 | 항목 | 내용 | 영향 |
 |---|---|---|
-| CHECK 제약 | `STATUS IN ('N', 'Y')` | **상태 설계 변경 필요** (위 경고) |
+| CHECK 제약 | `STATUS IN ('N', 'Y')` | 상태 설계 변경 (위, D-26) |
 | CHECK 제약 | `ORDER_ID`, `SHIPMENT_ID`: `REGEXP_LIKE(..., '^[A-Z][0-9]{3}$')` | 채번 형식과 같다 |
-| 추가 컬럼 | `ORDER_TB.CREATE_TIME`, `SHIPMENT_TB.CREATE_DATE` (`TIMESTAMP(6)`, 기본값 `SYSDATE`) | INSERT에 넣지 않으면 DB 시각이 들어간다. 면접의 "당일 날짜 기준 조회"가 이 컬럼을 쓰는 것으로 보인다 |
+| 추가 컬럼 | `ORDER_TB.CREATE_TIME`, `SHIPMENT_TB.CREATE_DATE` (`TIMESTAMP(6)`, 기본값 `SYSDATE`) | INSERT에 넣지 않아 DB 시각이 들어가게 한다(§4.1). 면접의 "당일 날짜 기준 조회"가 이 컬럼을 쓰는 것으로 보인다 |
 | 테이블 소유 | `RECRUIT` 스키마. 접속 시 현재 스키마가 `RECRUIT`로 설정됨(동의어 없음) | 스키마 접두어 없이 접근하는 지금 방식 그대로 |
 | 권한 | 두 테이블 모두 SELECT·INSERT·UPDATE | 가정대로 |
 | 트리거, 추가 인덱스 | 없음 (PK 인덱스만) | — |

@@ -9,13 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.TransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
@@ -29,9 +23,10 @@ import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 import com.inspien.assignment.receipt.domain.Receipt;
 import com.inspien.assignment.receipt.domain.UploadPlan;
 import com.inspien.assignment.retry.application.ConnectionWatch;
+import com.inspien.assignment.retry.application.CycleRunner;
 import com.inspien.assignment.retry.application.NextStep;
 import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.application.StageEvents;
+import com.inspien.assignment.retry.application.StageFailures;
 import com.inspien.assignment.retry.domain.Stage;
 
 /**
@@ -48,9 +43,9 @@ import com.inspien.assignment.retry.domain.Stage;
 @Service
 public class ReceiptService {
 
-	private static final Logger log = LoggerFactory.getLogger(ReceiptService.class);
-
 	private static final Stage STAGE = Stage.RECEIPT;
+
+	private static final String CYCLE_NAME = "영수증";
 
 	private final OrderService orders;
 
@@ -62,7 +57,9 @@ public class ReceiptService {
 
 	private final ProcessEvents events;
 
-	private final StageEvents stageEvents;
+	private final StageFailures failures;
+
+	private final CycleRunner cycles;
 
 	private final Clock clock;
 
@@ -77,13 +74,15 @@ public class ReceiptService {
 	private final ConnectionWatch ftp;
 
 	public ReceiptService(OrderService orders, InboundQueryService inbound, RetryService retry,
-			ReceiptUploader uploader, ProcessEvents events, StageEvents stageEvents, Clock clock, AppProperties properties) {
+			ReceiptUploader uploader, ProcessEvents events, StageFailures failures, CycleRunner cycles, Clock clock,
+			AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.retry = retry;
 		this.uploader = uploader;
 		this.events = events;
-		this.stageEvents = stageEvents;
+		this.failures = failures;
+		this.cycles = cycles;
 		this.clock = clock;
 		this.applicantName = properties.applicant().name();
 		this.contentCharset = Charset.forName(properties.receipt().contentCharset());
@@ -97,81 +96,57 @@ public class ReceiptService {
 	 * 주문마다 처리·커밋.
 	 */
 	public void runCycle() {
-		List<String> due;
-		try {
-			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
-			due = this.retry.selectDue(STAGE, candidates, this.batchSize);
-		}
-		catch (DataAccessException | TransactionException ex) {
-			log.error("쇼핑몰 DB 또는 H2 장애로 영수증 주기를 끝냅니다", ex);
-			return;
-		}
-		catch (RuntimeException ex) {
-			log.error("예상하지 못한 오류로 영수증 주기를 끝냅니다. 코드 결함일 수 있습니다", ex);
-			return;
-		}
+		List<String> due = this.cycles.selectTargets(CYCLE_NAME, this::selectDue);
 		if (due.isEmpty()) {
 			return;
 		}
 		try (ReceiptUploader.Session session = this.uploader.open()) {
 			Map<String, Long> listing = new HashMap<>(session.list());
 			this.ftp.connected();
-			for (String orderId : due) {
-				if (processOne(orderId, session, listing) == NextStep.END_CYCLE) {
-					break;
-				}
-			}
+			this.cycles.forEachOrder(CYCLE_NAME, due, orderId -> processOne(orderId, session, listing));
 		}
 		catch (ReceiptUploader.ConnectionFailedException ex) {
 			// 접속·로그인·목록 조회 실패. 주문의 문제가 아니라 횟수를 세지 않고 주기를 건너뛴다 (D-10).
-			// 주문 처리 중의 예외는 processOne이 모두 받으므로 여기로 오지 않는다
+			// 주문 처리 중의 예외는 CycleRunner가 모두 받으므로 여기로 오지 않는다
 			this.ftp.failed(ex);
 		}
 	}
 
+	private List<String> selectDue() {
+		List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
+		return this.retry.selectDue(STAGE, candidates, this.batchSize);
+	}
+
 	/**
+	 * 예외는 CycleRunner가 받아 주기를 끝낸다.
+	 *
 	 * @return 연결이 끊기거나 우리 쪽 저장소가 안 되면 END_CYCLE. 남은 주문도 같은 이유로 실패한다
 	 */
 	private NextStep processOne(String orderId, ReceiptUploader.Session session, Map<String, Long> listing) {
-		MDC.put("orderId", orderId);
-		try {
-			Optional<Order> found = this.orders.findById(orderId);
-			if (found.isEmpty() || found.get().status() != OrderStatus.N) {
-				// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
-				return NextStep.NEXT_ORDER;
-			}
-			Optional<Instant> receivedAt = this.inbound.receivedAt(orderId);
-			if (receivedAt.isEmpty()) {
-				missingRecord(orderId);
-				return NextStep.NEXT_ORDER;
-			}
-			OffsetDateTime receivedTime = receivedAt.get().atZone(this.clock.getZone()).toOffsetDateTime();
-			Receipt receipt = new Receipt(found.get(), receivedTime, this.applicantName);
-			byte[] content = receipt.content(this.contentCharset, this.bom);
-			UploadPlan plan = UploadPlan.of(receipt, listing, content.length);
-			if (!plan.upload()) {
-				alreadyUploaded(orderId, plan.fileName());
-				return NextStep.NEXT_ORDER;
-			}
-			return upload(orderId, plan, content, session, listing);
+		Optional<Order> found = this.orders.findById(orderId);
+		if (found.isEmpty() || found.get().status() != OrderStatus.N) {
+			// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
+			return NextStep.NEXT_ORDER;
 		}
-		catch (DataAccessException | TransactionException ex) {
-			log.error("쇼핑몰 DB 또는 H2 장애로 영수증 주기를 끝냅니다. 다음 주기에 사전 확인으로 이어서 처리합니다", ex);
-			return NextStep.END_CYCLE;
+		Optional<Instant> receivedAt = this.inbound.receivedAt(orderId);
+		if (receivedAt.isEmpty()) {
+			this.failures.missingRecord(orderId, STAGE);
+			return NextStep.NEXT_ORDER;
 		}
-		catch (RuntimeException ex) {
-			log.error("예상하지 못한 오류로 영수증 주기를 끝냅니다. 코드 결함일 수 있습니다. "
-					+ "다음 주기에 사전 확인으로 이어서 처리합니다", ex);
-			return NextStep.END_CYCLE;
+		OffsetDateTime receivedTime = receivedAt.get().atZone(this.clock.getZone()).toOffsetDateTime();
+		Receipt receipt = new Receipt(found.get(), receivedTime, this.applicantName);
+		byte[] content = receipt.content(this.contentCharset, this.bom);
+		UploadPlan plan = UploadPlan.of(receipt, listing, content.length);
+		if (!plan.upload()) {
+			alreadyUploaded(orderId, plan.fileName());
+			return NextStep.NEXT_ORDER;
 		}
-		finally {
-			MDC.remove("orderId");
-		}
+		return upload(orderId, plan, content, session, listing);
 	}
 
 	/**
 	 * 올리고 완료를 적는다. 업로드 실패만 여기서 건별 실패로 센다. 데이터 연결을 열지 못했으면(아무것도 보내지 않음)
-	 * 연결 실패로 보고 횟수 없이 주기를 끝낸다 (D-10). 완료 기록(H2)이 실패하면 예외가 processOne으로 올라가 주기를
+	 * 연결 실패로 보고 횟수 없이 주기를 끝낸다 (D-10). 완료 기록(H2)이 실패하면 예외가 CycleRunner로 올라가 주기를
 	 * 끝낸다 (D-22, D-26).
 	 */
 	private NextStep upload(String orderId, UploadPlan plan, byte[] content, ReceiptUploader.Session session,
@@ -184,7 +159,7 @@ public class ReceiptService {
 			return NextStep.END_CYCLE;
 		}
 		catch (ReceiptUploader.UploadFailedException ex) {
-			orderFailed(orderId, plan.fileName() + " 업로드 실패: " + ex.getMessage());
+			this.failures.orderFailed(orderId, STAGE, plan.fileName() + " 업로드 실패: " + ex.getMessage());
 			return ex.connectionLost() ? NextStep.END_CYCLE : NextStep.NEXT_ORDER;
 		}
 		listing.put(plan.fileName(), (long) content.length);
@@ -214,19 +189,6 @@ public class ReceiptService {
 	private void alreadyUploaded(String orderId, String fileName) {
 		this.retry.recordCompletion(orderId, STAGE, fileName);
 		this.events.publishForOrder(orderId, ProcessEvent.Stage.RECEIPT, Result.SKIP, fileName + " 이미 있음");
-	}
-
-	private void orderFailed(String orderId, String error) {
-		RetryService.Failure failure = this.retry.recordFailure(orderId, STAGE, error);
-		this.stageEvents.failed(orderId, STAGE, failure, error);
-	}
-
-	/**
-	 * H2에 수신 기록이 없는 주문: 수신일시를 지어내지 않는다. 다시 해도 결과가 같아 재시도 없이 사람에게 넘긴다 (D-22).
-	 */
-	private void missingRecord(String orderId) {
-		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
-		this.stageEvents.missingRecord(orderId, STAGE);
 	}
 
 }

@@ -2,18 +2,13 @@ package com.inspien.assignment.order.application;
 
 import java.util.List;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.TransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.order.domain.OrderStatus;
+import com.inspien.assignment.retry.application.CycleRunner;
 import com.inspien.assignment.retry.application.RetryService;
 
 /**
@@ -29,7 +24,7 @@ import com.inspien.assignment.retry.application.RetryService;
 @Service
 public class CloseService {
 
-	private static final Logger log = LoggerFactory.getLogger(CloseService.class);
+	private static final String CYCLE_NAME = "마감";
 
 	private final OrderService orders;
 
@@ -37,42 +32,32 @@ public class CloseService {
 
 	private final ProcessEvents events;
 
+	private final CycleRunner cycles;
+
 	private final int batchSize;
 
-	public CloseService(OrderService orders, RetryService stages, ProcessEvents events, AppProperties properties) {
+	public CloseService(OrderService orders, RetryService stages, ProcessEvents events, CycleRunner cycles,
+			AppProperties properties) {
 		this.orders = orders;
 		this.stages = stages;
 		this.events = events;
+		this.cycles = cycles;
 		this.batchSize = properties.scheduler().batchSize();
 	}
 
 	public void runCycle() {
-		try {
-			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
-			List<String> done = this.stages.selectAllDone(candidates, this.batchSize);
-			for (String orderId : done) {
-				close(orderId);
-			}
-		}
-		catch (DataAccessException | TransactionException ex) {
-			log.error("쇼핑몰 DB 또는 H2 장애로 마감 주기를 끝냅니다. 다음 주기에 같은 조건으로 다시 찾습니다", ex);
-		}
-		catch (RuntimeException ex) {
-			log.error("예상하지 못한 오류로 마감 주기를 끝냅니다. 코드 결함일 수 있습니다. "
-					+ "다음 주기에 같은 조건으로 다시 찾습니다", ex);
-		}
+		this.cycles.selectAndRunAll(CYCLE_NAME, this::selectAllDone, this::close);
+	}
+
+	private List<String> selectAllDone() {
+		List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
+		return this.stages.selectAllDone(candidates, this.batchSize);
 	}
 
 	private void close(String orderId) {
-		MDC.put("orderId", orderId);
-		try {
-			if (this.orders.close(orderId)) {
-				this.events.publishForOrder(orderId, ProcessEvent.Stage.CLOSE, ProcessEvent.Result.SUCCESS,
-						"영수증·배송 모두 완료, STATUS N→Y");
-			}
-		}
-		finally {
-			MDC.remove("orderId");
+		if (this.orders.close(orderId)) {
+			this.events.publishForOrder(orderId, ProcessEvent.Stage.CLOSE, ProcessEvent.Result.SUCCESS,
+					"영수증·배송 모두 완료, STATUS N→Y");
 		}
 	}
 

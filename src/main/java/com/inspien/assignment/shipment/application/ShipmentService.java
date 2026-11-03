@@ -3,14 +3,8 @@ package com.inspien.assignment.shipment.application;
 import java.util.List;
 import java.util.Optional;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-
-import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.TransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.error.DbFailures;
@@ -24,9 +18,11 @@ import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.retry.application.ConnectionWatch;
+import com.inspien.assignment.retry.application.CycleRunner;
 import com.inspien.assignment.retry.application.NextStep;
 import com.inspien.assignment.retry.application.RetryService;
 import com.inspien.assignment.retry.application.StageEvents;
+import com.inspien.assignment.retry.application.StageFailures;
 import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.shipment.domain.Shipment;
 
@@ -45,9 +41,9 @@ import com.inspien.assignment.shipment.domain.Shipment;
 @Service
 public class ShipmentService {
 
-	private static final Logger log = LoggerFactory.getLogger(ShipmentService.class);
-
 	private static final Stage STAGE = Stage.SHIPMENT;
+
+	private static final String CYCLE_NAME = "배송";
 
 	private final OrderService orders;
 
@@ -63,12 +59,17 @@ public class ShipmentService {
 
 	private final StageEvents stageEvents;
 
+	private final StageFailures failures;
+
+	private final CycleRunner cycles;
+
 	private final int batchSize;
 
 	private final ConnectionWatch shipmentDb;
 
 	ShipmentService(OrderService orders, InboundQueryService inbound, RetryService retry, NumberingService numbering,
-			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, AppProperties properties) {
+			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, StageFailures failures,
+			CycleRunner cycles, AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.retry = retry;
@@ -76,66 +77,43 @@ public class ShipmentService {
 		this.registry = registry;
 		this.events = events;
 		this.stageEvents = stageEvents;
+		this.failures = failures;
+		this.cycles = cycles;
 		this.batchSize = properties.scheduler().batchSize();
 		this.shipmentDb = new ConnectionWatch("운송회사 DB", STAGE, events);
 	}
 
 	public void runCycle() {
-		List<String> due;
-		try {
-			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
-			due = this.retry.selectDue(STAGE, candidates, this.batchSize);
-		}
-		catch (DataAccessException | TransactionException ex) {
-			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다", ex);
-			return;
-		}
-		catch (RuntimeException ex) {
-			log.error("예상하지 못한 오류로 배송 주기를 끝냅니다. 코드 결함일 수 있습니다", ex);
-			return;
-		}
-		for (String orderId : due) {
-			if (processOne(orderId) == NextStep.END_CYCLE) {
-				break;
-			}
-		}
+		List<String> due = this.cycles.selectTargets(CYCLE_NAME, this::selectDue);
+		this.cycles.forEachOrder(CYCLE_NAME, due, this::processOne);
+	}
+
+	private List<String> selectDue() {
+		List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
+		return this.retry.selectDue(STAGE, candidates, this.batchSize);
 	}
 
 	/**
+	 * 예외는 CycleRunner가 받아 주기를 끝낸다.
+	 *
 	 * @return 연결이 끊기거나 우리 쪽 저장소가 안 되면 END_CYCLE. 남은 주문도 같은 이유로 실패한다
 	 */
 	private NextStep processOne(String orderId) {
-		MDC.put("orderId", orderId);
-		try {
-			Optional<Order> found = this.orders.findById(orderId);
-			if (found.isEmpty() || found.get().status() != OrderStatus.N) {
-				// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
-				return NextStep.NEXT_ORDER;
-			}
-			if (this.inbound.receivedAt(orderId).isEmpty()) {
-				missingRecord(orderId);
-				return NextStep.NEXT_ORDER;
-			}
-			String shipmentId = this.retry.artifactOrAssign(orderId, STAGE,
-					() -> this.numbering.next(IdSequence.SHIPMENT));
-			return register(Shipment.of(shipmentId, found.get()));
+		Optional<Order> found = this.orders.findById(orderId);
+		if (found.isEmpty() || found.get().status() != OrderStatus.N) {
+			// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
+			return NextStep.NEXT_ORDER;
 		}
-		catch (DataAccessException | TransactionException ex) {
-			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다. 다음 주기에 사전 확인으로 이어서 처리합니다", ex);
-			return NextStep.END_CYCLE;
+		if (this.inbound.receivedAt(orderId).isEmpty()) {
+			this.failures.missingRecord(orderId, STAGE);
+			return NextStep.NEXT_ORDER;
 		}
-		catch (RuntimeException ex) {
-			log.error("예상하지 못한 오류로 배송 주기를 끝냅니다. 코드 결함일 수 있습니다. "
-					+ "다음 주기에 사전 확인으로 이어서 처리합니다", ex);
-			return NextStep.END_CYCLE;
-		}
-		finally {
-			MDC.remove("orderId");
-		}
+		String shipmentId = this.retry.artifactOrAssign(orderId, STAGE, () -> this.numbering.next(IdSequence.SHIPMENT));
+		return register(Shipment.of(shipmentId, found.get()));
 	}
 
 	/**
-	 * 운송 DB 작업만 오류 분류 대상이다. H2 완료 기록은 그 밖에서 해, 실패하면 예외가 processOne으로 올라가 주기를 끝낸다.
+	 * 운송 DB 작업만 오류 분류 대상이다. H2 완료 기록은 그 밖에서 해, 실패하면 예외가 CycleRunner로 올라가 주기를 끝낸다.
 	 * 분류 안에 두면 H2 장애가 배송 건별 실패로 세지거나 운송 DB 연결 실패로 남는다 (D-22, D-26).
 	 */
 	private NextStep register(Shipment shipment) {
@@ -153,7 +131,7 @@ public class ShipmentService {
 		}
 		catch (RuntimeException ex) {
 			if (!DbFailures.isConnectionOrResource(ex)) {
-				orderFailed(orderId, "배송 등록 실패: " + rootMessage(ex));
+				this.failures.orderFailed(orderId, STAGE, "배송 등록 실패: " + rootMessage(ex));
 				return NextStep.NEXT_ORDER;
 			}
 			// 커밋 중 타임아웃(결과 불명)도 여기다. 다음 주기에 같은 SHIPMENT_ID로 다시 시도해, 앞 커밋이 늦게 끝났으면
@@ -194,7 +172,7 @@ public class ShipmentService {
 		}
 
 		if (stored.isEmpty()) {
-			orderFailed(orderId, "배송 등록 거절: " + rootMessage(conflict));
+			this.failures.orderFailed(orderId, STAGE, "배송 등록 거절: " + rootMessage(conflict));
 			return NextStep.NEXT_ORDER;
 		}
 		if (stored.get().sameAs(shipment)) {
@@ -221,16 +199,6 @@ public class ShipmentService {
 	private void alreadyRegistered(String orderId, String shipmentId) {
 		this.retry.recordCompletion(orderId, STAGE, shipmentId);
 		this.events.publishForOrder(orderId, ProcessEvent.Stage.SHIPMENT, Result.SKIP, "배송 " + shipmentId + " 이미 있음");
-	}
-
-	private void orderFailed(String orderId, String error) {
-		RetryService.Failure failure = this.retry.recordFailure(orderId, STAGE, error);
-		this.stageEvents.failed(orderId, STAGE, failure, error);
-	}
-
-	private void missingRecord(String orderId) {
-		this.retry.markFailed(orderId, STAGE, "H2에 수신 기록 없음");
-		this.stageEvents.missingRecord(orderId, STAGE);
 	}
 
 	private static String rootMessage(Throwable ex) {

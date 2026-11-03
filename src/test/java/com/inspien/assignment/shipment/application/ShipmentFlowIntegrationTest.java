@@ -1,8 +1,5 @@
 package com.inspien.assignment.shipment.application;
 
-import java.nio.charset.Charset;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -12,9 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -24,8 +19,6 @@ import org.springframework.transaction.CannotCreateTransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
-import com.inspien.assignment.inbound.application.ReceiveOrderService;
-import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.numbering.application.NumberingService;
 import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
@@ -36,9 +29,9 @@ import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.retry.domain.StageState;
 import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.domain.Shipment;
-import com.inspien.assignment.support.FakeFtp;
+import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
-import com.inspien.assignment.support.MutableClock;
+import com.inspien.assignment.support.TestOrders;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,13 +46,12 @@ import static org.mockito.Mockito.doThrow;
  * 기다리지 않고, H2에 자기 단계의 완료만 적는다 (D-26).
  */
 @IntegrationTest
+@Import({ IntegrationFakes.class, TestOrders.class })
 @RecordApplicationEvents
 class ShipmentFlowIntegrationTest {
 
-	static final Charset EUC_KR = Charset.forName("EUC-KR");
-
 	@Autowired
-	ReceiveOrderService receive;
+	TestOrders testOrders;
 
 	@Autowired
 	ShipmentService shipments;
@@ -96,9 +88,9 @@ class ShipmentFlowIntegrationTest {
 
 		this.shipments.runCycle();
 
-		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.DONE);
 		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("영수증은 아직 시작도 안 했다").isEmpty();
-		assertThat(statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
+		assertThat(this.testOrders.statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 		JdbcTemplate jdbc = new JdbcTemplate(this.shipmentDataSource);
 		assertThat(jdbc.queryForList("SELECT ORDER_ID FROM SHIPMENT_TB WHERE APPLICANT_KEY = ?", String.class,
 				this.properties.applicant().key()))
@@ -116,11 +108,11 @@ class ShipmentFlowIntegrationTest {
 		// INSERT 후 H2 완료 기록 전에 중단된 상황
 		new JdbcTemplate(this.historyDataSource).update(
 				"UPDATE ORDER_STAGE SET COMPLETED_AT = NULL WHERE ORDER_ID = ? AND STAGE = 'SHIPMENT'", ids.get(0));
-		assertThat(shipmentStatus(ids.get(0))).isEqualTo(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatus(ids.get(0), Stage.SHIPMENT)).isEqualTo(StageStatus.PENDING);
 
 		this.shipments.runCycle();
 
-		assertThat(shipmentStatus(ids.get(0))).isEqualTo(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatus(ids.get(0), Stage.SHIPMENT)).isEqualTo(StageStatus.DONE);
 		assertThat(shipmentCount(ids.get(0))).isEqualTo(1);
 	}
 
@@ -137,7 +129,7 @@ class ShipmentFlowIntegrationTest {
 
 		this.shipments.runCycle();
 
-		assertThat(shipmentStatus(orderId)).isEqualTo(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatus(orderId, Stage.SHIPMENT)).isEqualTo(StageStatus.DONE);
 		assertThat(shipmentCount(orderId)).isEqualTo(1);
 	}
 
@@ -165,7 +157,7 @@ class ShipmentFlowIntegrationTest {
 		this.shipments.runCycle();
 		this.shipments.runCycle();
 
-		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.PENDING);
 		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isZero();
 		assertThat(count(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 	}
@@ -180,7 +172,7 @@ class ShipmentFlowIntegrationTest {
 		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isEqualTo(1);
 		assertThat(this.retry.find(ids.get(1), Stage.SHIPMENT).orElseThrow().attempts()).as("다른 주문은 계속 시도")
 			.isEqualTo(1);
-		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.PENDING);
 	}
 
 	/**
@@ -215,7 +207,7 @@ class ShipmentFlowIntegrationTest {
 		doCallRealMethod().when(this.retry).recordCompletion(anyString(), any(), any());
 		this.shipments.runCycle();
 
-		assertThat(shipmentStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.DONE);
 		assertThat(shipmentCount(ids.get(0))).isEqualTo(1);
 	}
 
@@ -225,8 +217,7 @@ class ShipmentFlowIntegrationTest {
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM09</ITEM_ID><ITEM_NAME>키보드</ITEM_NAME><PRICE>45000</PRICE></ITEM>
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM10</ITEM_ID><ITEM_NAME>마우스</ITEM_NAME><PRICE>32000</PRICE></ITEM>
 				""".formatted(mark);
-		ReceiveResult result = this.receive.receive(body.getBytes(EUC_KR), null);
-		return result.stored().stream().map(ReceiveResult.Stored::orderId).toList();
+		return this.testOrders.receive(body);
 	}
 
 	private int shipmentCount(String orderId) {
@@ -235,37 +226,8 @@ class ShipmentFlowIntegrationTest {
 				this.properties.applicant().key());
 	}
 
-	private List<OrderStatus> statuses(List<String> ids) {
-		return this.orders.findByIds(ids).stream().map(Order::status).toList();
-	}
-
-	private List<StageStatus> shipmentStatuses(List<String> ids) {
-		return ids.stream().map(this::shipmentStatus).toList();
-	}
-
-	private StageStatus shipmentStatus(String orderId) {
-		return StageState.statusOf(this.retry.find(orderId, Stage.SHIPMENT).orElse(null));
-	}
-
 	private long count(ProcessEvent.Result result) {
 		return this.events.stream(ProcessEvent.class).filter(event -> event.result() == result).count();
-	}
-
-	@TestConfiguration
-	static class Fakes {
-
-		@Bean
-		@Primary
-		FakeFtp fakeFtp() {
-			return new FakeFtp();
-		}
-
-		@Bean
-		@Primary
-		MutableClock mutableClock() {
-			return new MutableClock(Instant.parse("2026-10-31T05:05:12Z"), ZoneId.of("Asia/Seoul"));
-		}
-
 	}
 
 }

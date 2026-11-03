@@ -1,31 +1,22 @@
 package com.inspien.assignment.receipt;
 
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import javax.sql.DataSource;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
-import com.inspien.assignment.inbound.application.ReceiveOrderService;
-import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
@@ -35,8 +26,10 @@ import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.retry.domain.StageState;
 import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.support.FakeFtp;
+import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
 import com.inspien.assignment.support.MutableClock;
+import com.inspien.assignment.support.TestOrders;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,13 +38,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 완료만 적고 STATUS는 바꾸지 않는다 (D-26).
  */
 @IntegrationTest
+@Import({ IntegrationFakes.class, TestOrders.class })
 @RecordApplicationEvents
 class ReceiptFlowIntegrationTest {
 
-	static final Charset EUC_KR = Charset.forName("EUC-KR");
-
 	@Autowired
-	ReceiveOrderService receive;
+	TestOrders testOrders;
 
 	@Autowired
 	ReceiptService receipts;
@@ -78,20 +70,8 @@ class ReceiptFlowIntegrationTest {
 	@Autowired
 	ApplicationEvents events;
 
-	@BeforeEach
-	void resetFtp() {
-		this.ftp.down = false;
-		this.ftp.failUploadsContaining = null;
-		this.ftp.dataConnectionFails = false;
-	}
-
 	@Test
 	void uploadsOneCsvPerOrderAndCompletesReceiptStageOnly() {
-		// 다른 테스트가 시계를 옮겼을 수 있다. 수신 시각은 이 테스트가 받은 시각이다
-		Instant receivedAt = this.clock.instant();
-		String receivedText = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-			.withZone(this.clock.getZone())
-			.format(receivedAt);
 		List<String> ids = receiveTwoOrders("A");
 
 		this.receipts.runCycle();
@@ -100,12 +80,13 @@ class ReceiptFlowIntegrationTest {
 		assertThat(this.ftp.files).containsKeys("영수증_" + name + "_" + ids.get(0) + ".csv",
 				"영수증_" + name + "_" + ids.get(1) + ".csv");
 		String csv = new String(this.ftp.files.get("영수증_" + name + "_" + ids.get(1) + ".csv"), StandardCharsets.UTF_8);
+		// 수신 시각은 시계의 처음 시각(IntegrationFakes.START)을 한국 시각으로 적은 것이다
 		assertThat(csv).startsWith("﻿ORDER_ID,USER_ID,NAME,ITEM_ID,ITEM_NAME,PRICE,RECEIVED_AT\r\n")
-			.contains(ids.get(1) + ",USER01,김민수A,ITEM10,\"노트북 거치대, 블랙\",32000," + receivedText + "\r\n");
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+			.contains(ids.get(1) + ",USER01,김민수A,ITEM10,\"노트북 거치대, 블랙\",32000,2026-10-31 14:05:12\r\n");
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
 		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().completedAt())
-			.isEqualTo(receivedAt);
-		assertThat(statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
+			.isEqualTo(IntegrationFakes.START);
+		assertThat(this.testOrders.statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 	}
 
 	@Test
@@ -117,14 +98,14 @@ class ReceiptFlowIntegrationTest {
 		this.receipts.runCycle();
 		this.receipts.runCycle();
 
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.PENDING);
 		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
 		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 
 		this.ftp.down = false;
 		this.receipts.runCycle();
 
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
 		assertThat(results(ProcessEvent.Result.CONNECTION_RECOVERED)).isEqualTo(1);
 	}
 
@@ -135,7 +116,7 @@ class ReceiptFlowIntegrationTest {
 
 		this.receipts.runCycle();
 
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.PENDING);
 		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
 		assertThat(this.retry.find(ids.get(1), Stage.RECEIPT)).isEmpty();
 		assertThat(results(ProcessEvent.Result.FAIL)).isZero();
@@ -145,7 +126,7 @@ class ReceiptFlowIntegrationTest {
 		this.ftp.dataConnectionFails = false;
 		this.receipts.runCycle();
 
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
 		assertThat(results(ProcessEvent.Result.CONNECTION_RECOVERED)).isEqualTo(1);
 	}
 
@@ -155,7 +136,8 @@ class ReceiptFlowIntegrationTest {
 		this.ftp.failUploadsContaining = ids.get(0);
 
 		this.receipts.runCycle();
-		assertThat(receiptStatus(ids.get(1))).as("다른 주문은 막히지 않는다").isEqualTo(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatus(ids.get(1), Stage.RECEIPT)).as("다른 주문은 막히지 않는다")
+			.isEqualTo(StageStatus.DONE);
 
 		// 백오프 중에는 시도하지 않는다
 		this.receipts.runCycle();
@@ -175,7 +157,7 @@ class ReceiptFlowIntegrationTest {
 		this.clock.advance(Duration.ofHours(1));
 		this.receipts.runCycle();
 		assertThat(failures(ids.get(0))).isEqualTo(5);
-		assertThat(statuses(ids)).containsOnly(OrderStatus.N);
+		assertThat(this.testOrders.statuses(ids)).containsOnly(OrderStatus.N);
 	}
 
 	@Test
@@ -188,7 +170,7 @@ class ReceiptFlowIntegrationTest {
 
 		assertThat(this.ftp.uploads).contains("영수증_" + name + "_" + ids.get(0) + "_r1.csv")
 			.doesNotContain("영수증_" + name + "_" + ids.get(0) + ".csv");
-		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
 		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().artifact())
 			.isEqualTo("영수증_" + name + "_" + ids.get(0) + "_r1.csv");
 	}
@@ -200,13 +182,13 @@ class ReceiptFlowIntegrationTest {
 		// 업로드 뒤 H2 완료 기록 전에 중단된 상황을 재현: 파일은 있고 영수증 단계는 PENDING
 		new JdbcTemplate(this.historyDataSource).update(
 				"UPDATE ORDER_STAGE SET COMPLETED_AT = NULL WHERE ORDER_ID = ? AND STAGE = 'RECEIPT'", ids.get(0));
-		assertThat(receiptStatus(ids.get(0))).isEqualTo(StageStatus.PENDING);
+		assertThat(this.testOrders.stageStatus(ids.get(0), Stage.RECEIPT)).isEqualTo(StageStatus.PENDING);
 		int uploads = this.ftp.uploads.size();
 
 		this.receipts.runCycle();
 
 		assertThat(this.ftp.uploads).hasSize(uploads);
-		assertThat(receiptStatus(ids.get(0))).isEqualTo(StageStatus.DONE);
+		assertThat(this.testOrders.stageStatus(ids.get(0), Stage.RECEIPT)).isEqualTo(StageStatus.DONE);
 		assertThat(results(ProcessEvent.Result.SKIP)).isEqualTo(1);
 	}
 
@@ -229,20 +211,7 @@ class ReceiptFlowIntegrationTest {
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM09</ITEM_ID><ITEM_NAME>키보드</ITEM_NAME><PRICE>45000</PRICE></ITEM>
 				<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM10</ITEM_ID><ITEM_NAME>노트북 거치대, 블랙</ITEM_NAME><PRICE>32000</PRICE></ITEM>
 				""".formatted(mark);
-		ReceiveResult result = this.receive.receive(body.getBytes(EUC_KR), null);
-		return result.stored().stream().map(ReceiveResult.Stored::orderId).toList();
-	}
-
-	private List<OrderStatus> statuses(List<String> ids) {
-		return this.orders.findByIds(ids).stream().map(Order::status).toList();
-	}
-
-	private List<StageStatus> receiptStatuses(List<String> ids) {
-		return ids.stream().map(this::receiptStatus).toList();
-	}
-
-	private StageStatus receiptStatus(String orderId) {
-		return StageState.statusOf(this.retry.find(orderId, Stage.RECEIPT).orElse(null));
+		return this.testOrders.receive(body);
 	}
 
 	private long results(ProcessEvent.Result result) {
@@ -253,23 +222,6 @@ class ReceiptFlowIntegrationTest {
 		return this.events.stream(ProcessEvent.class)
 			.filter(event -> orderId.equals(event.orderId()) && event.result() == ProcessEvent.Result.FAIL)
 			.count();
-	}
-
-	@TestConfiguration
-	static class Fakes {
-
-		@Bean
-		@Primary
-		FakeFtp fakeFtp() {
-			return new FakeFtp();
-		}
-
-		@Bean
-		@Primary
-		MutableClock mutableClock() {
-			return new MutableClock(Instant.parse("2026-10-31T05:05:12Z"), ZoneId.of("Asia/Seoul"));
-		}
-
 	}
 
 }

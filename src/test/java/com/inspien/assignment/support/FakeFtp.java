@@ -27,6 +27,18 @@ public class FakeFtp implements ReceiptUploader {
 
 	public volatile int opened;
 
+	/**
+	 * 처음 상태로 되돌린다: 빈 서버, 업로드 기록 없음, 장애 없음.
+	 */
+	public void reset() {
+		this.files.clear();
+		this.uploads.clear();
+		this.down = false;
+		this.failUploadsContaining = null;
+		this.dataConnectionFails = false;
+		this.opened = 0;
+	}
+
 	@Override
 	public Session open() {
 		if (this.down) {

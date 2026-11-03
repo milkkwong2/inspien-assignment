@@ -2,8 +2,6 @@ package com.inspien.assignment.inbound;
 
 import java.nio.charset.Charset;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -17,10 +15,8 @@ import org.mockito.invocation.InvocationOnMock;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.RecoverableDataAccessException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -38,6 +34,7 @@ import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
+import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
 import com.inspien.assignment.support.MutableClock;
 
@@ -55,6 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * IF-01 수신 흐름 (설계서 §7.1). 중복 판단·재처리 규칙 D-15, D-16, D-24와 응답 계약 D-17을 확인한다.
  */
 @IntegrationTest
+@Import(IntegrationFakes.class)
 @AutoConfigureMockMvc
 class ReceiveOrderIntegrationTest {
 
@@ -301,17 +299,6 @@ class ReceiveOrderIntegrationTest {
 
 	static List<String> orderIds(MvcResult result) throws Exception {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.data.stored[*].orderId");
-	}
-
-	@TestConfiguration
-	static class ClockConfig {
-
-		@Bean
-		@Primary
-		MutableClock mutableClock() {
-			return new MutableClock(Instant.parse("2026-10-31T05:05:12Z"), ZoneId.of("Asia/Seoul"));
-		}
-
 	}
 
 }

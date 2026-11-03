@@ -1,9 +1,7 @@
 package com.inspien.assignment.tracking;
 
 import java.nio.charset.Charset;
-import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -13,10 +11,8 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
@@ -31,9 +27,8 @@ import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.retry.domain.StageState;
 import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.application.ShipmentService;
-import com.inspien.assignment.support.FakeFtp;
+import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
-import com.inspien.assignment.support.MutableClock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -45,6 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 운영자 재처리 API (설계서 §5.4, D-26). H2의 "사람이 확인" 표시와 횟수만 조건부로 지우고, 완료 시각과 결과물은 둔다.
  */
 @IntegrationTest
+@Import(IntegrationFakes.class)
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 class OperationsIntegrationTest {
@@ -151,23 +147,6 @@ class OperationsIntegrationTest {
 		return new JdbcTemplate(this.historyDataSource).queryForObject(
 				"SELECT UPDATED_AT FROM ORDER_STAGE WHERE ORDER_ID = ? AND STAGE = ?", OffsetDateTime.class, orderId,
 				stage.name());
-	}
-
-	@TestConfiguration
-	static class Fakes {
-
-		@Bean
-		@Primary
-		FakeFtp fakeFtp() {
-			return new FakeFtp();
-		}
-
-		@Bean
-		@Primary
-		MutableClock mutableClock() {
-			return new MutableClock(Instant.parse("2026-10-31T05:05:12Z"), ZoneId.of("Asia/Seoul"));
-		}
-
 	}
 
 }

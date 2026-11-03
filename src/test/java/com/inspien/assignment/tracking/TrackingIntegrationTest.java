@@ -1,8 +1,6 @@
 package com.inspien.assignment.tracking;
 
 import java.nio.charset.Charset;
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -10,10 +8,8 @@ import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -22,9 +18,8 @@ import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.receipt.application.ReceiptService;
 import com.inspien.assignment.shipment.application.ShipmentService;
-import com.inspien.assignment.support.FakeFtp;
+import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
-import com.inspien.assignment.support.MutableClock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -40,6 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * STATUS(N/Y)와 단계별 상태(PENDING·DONE·FAILED)를 함께 보여 준다 (D-26).
  */
 @IntegrationTest
+@Import(IntegrationFakes.class)
 @AutoConfigureMockMvc
 class TrackingIntegrationTest {
 
@@ -273,23 +269,6 @@ class TrackingIntegrationTest {
 				<ITEM><USER_ID>USER09</USER_ID><ITEM_ID>ITEM30</ITEM_ID><ITEM_NAME>키보드</ITEM_NAME><PRICE>45000</PRICE></ITEM>
 				""".formatted(mark);
 		return this.mvc.perform(post("/orders").content(body.getBytes(EUC_KR))).andExpect(status().isOk()).andReturn();
-	}
-
-	@TestConfiguration
-	static class Fakes {
-
-		@Bean
-		@Primary
-		FakeFtp fakeFtp() {
-			return new FakeFtp();
-		}
-
-		@Bean
-		@Primary
-		MutableClock mutableClock() {
-			return new MutableClock(Instant.parse("2026-10-31T05:05:12Z"), ZoneId.of("Asia/Seoul"));
-		}
-
 	}
 
 }

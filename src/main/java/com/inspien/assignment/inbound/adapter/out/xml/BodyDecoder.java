@@ -42,6 +42,12 @@ final class BodyDecoder {
 
 	private static final Pattern DECLARATION = Pattern.compile("^<\\?xml\\s[^>]*?\\?>");
 
+	/**
+	 * XML 선언은 본문 맨 앞에만 올 수 있어 앞부분만 본다. 가장 긴 선언(version·encoding·standalone)도 100바이트를 넘지
+	 * 않아 넉넉히 잡았다. 본문 전체를 읽으면 큰 메시지에서 낭비다.
+	 */
+	private static final int DECLARATION_SCAN_BYTES = 200;
+
 	private static final Pattern DECLARED_VERSION = Pattern.compile("version\\s*=\\s*[\"']([^\"']*)[\"']");
 
 	private static final Pattern DECLARED_ENCODING = Pattern.compile("encoding\\s*=\\s*[\"']([^\"']*)[\"']");
@@ -106,7 +112,7 @@ final class BodyDecoder {
 	 * 본문 맨 앞의 선언에서 encoding을 바이트 그대로 읽는다.
 	 */
 	private static String declaredEncoding(byte[] body) {
-		String head = new String(body, 0, Math.min(body.length, 200), StandardCharsets.ISO_8859_1);
+		String head = new String(body, 0, Math.min(body.length, DECLARATION_SCAN_BYTES), StandardCharsets.ISO_8859_1);
 		Matcher declaration = DECLARATION.matcher(head);
 		if (!declaration.find()) {
 			return null;

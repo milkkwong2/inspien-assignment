@@ -12,6 +12,18 @@ public enum MessageState {
 	COMPLETED,
 
 	/** 실패. 응답 코드를 함께 기록한다 */
-	FAILED
+	FAILED;
+
+	/**
+	 * 조회 파라미터를 읽는다. 모르는 값이면 null.
+	 */
+	public static MessageState parse(String value) {
+		for (MessageState state : values()) {
+			if (state.name().equals(value)) {
+				return state;
+			}
+		}
+		return null;
+	}
 
 }

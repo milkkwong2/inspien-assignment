@@ -3,7 +3,6 @@ package com.inspien.assignment.inbound.application;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -29,19 +28,22 @@ public record ReceiveResult(String messageId, OffsetDateTime receivedAt, boolean
 
 	static ReceiveResult of(String messageId, OffsetDateTime receivedAt, OrderAssembly assembly,
 			List<AssignedOrder> assigned) {
-		Map<Integer, String> orderIdBySeq = assigned.stream()
-			.collect(Collectors.toMap(AssignedOrder::seq, AssignedOrder::orderId));
+		Map<Integer, String> orderIdsBySeq = AssignedOrder.orderIdsBySeq(assigned);
 		List<Stored> stored = assembly.accepted()
 			.stream()
-			.map(a -> new Stored(a.seq(), orderIdBySeq.get(a.seq()), a.item().userId(), a.item().itemId()))
+			.map(accepted -> Stored.of(accepted, orderIdsBySeq.get(accepted.seq())))
 			.toList();
 		List<Rejected> rejected = assembly.rejected()
 			.stream()
-			.map(r -> new Rejected(r.seq(), r.userId(), r.itemId(), r.reason(), r.field()))
+			.map(Rejected::of)
 			.toList();
-		List<Warning> warnings = assembly.warnings().stream().map(w -> new Warning(w.userId(), w.reason())).toList();
-		return new ReceiveResult(messageId, receivedAt, false, null,
-				new Summary(stored.size(), rejected.size(), warnings.size()), stored, rejected, warnings);
+		List<Warning> warnings = assembly.warnings()
+			.stream()
+			.map(Warning::of)
+			.toList();
+
+		Summary summary = new Summary(stored.size(), rejected.size(), warnings.size());
+		return new ReceiveResult(messageId, receivedAt, false, null, summary, stored, rejected, warnings);
 	}
 
 	/**
@@ -59,14 +61,30 @@ public record ReceiveResult(String messageId, OffsetDateTime receivedAt, boolean
 	 * @param seq 본문 안 ITEM 순서 (1부터)
 	 */
 	public record Stored(int seq, String orderId, String userId, String itemId) {
+
+		static Stored of(OrderAssembly.Accepted accepted, String orderId) {
+			return new Stored(accepted.seq(), orderId, accepted.item().userId(), accepted.item().itemId());
+		}
+
 	}
 
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record Rejected(int seq, String userId, String itemId, IssueReason reason, String field) {
+
+		static Rejected of(OrderAssembly.Rejected rejected) {
+			return new Rejected(rejected.seq(), rejected.userId(), rejected.itemId(), rejected.reason(),
+					rejected.field());
+		}
+
 	}
 
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record Warning(String userId, IssueReason reason) {
+
+		static Warning of(OrderAssembly.Warning warning) {
+			return new Warning(warning.userId(), warning.reason());
+		}
+
 	}
 
 }

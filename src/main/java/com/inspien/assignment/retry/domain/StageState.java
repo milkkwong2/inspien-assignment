@@ -44,11 +44,18 @@ public record StageState(String orderId, Stage stage, int attempts, Instant next
 	}
 
 	/**
-	 * 건별 실패 1회. 한도에 닿았으면 다음 시도 없이 표시까지 한 번에 바꾼다 (D-26).
+	 * 건별 실패 1회, 아직 한도 전: 횟수를 세고 다음 시도 시각을 정한다.
 	 */
-	public StageState failed(String error, Instant nextAttemptAt, boolean exhausted) {
-		return new StageState(this.orderId, this.stage, this.attempts + 1, exhausted ? null : nextAttemptAt, exhausted,
-				error, this.artifact, null);
+	public StageState failed(String error, Instant nextAttemptAt) {
+		return new StageState(this.orderId, this.stage, this.attempts + 1, nextAttemptAt, false, error, this.artifact,
+				null);
+	}
+
+	/**
+	 * 건별 실패 1회로 한도에 닿음: 횟수와 "사람이 확인" 표시를 한 번에 바꾼다 (D-26). 다음 시도는 없다.
+	 */
+	public StageState exhausted(String error) {
+		return new StageState(this.orderId, this.stage, this.attempts + 1, null, true, error, this.artifact, null);
 	}
 
 	/**

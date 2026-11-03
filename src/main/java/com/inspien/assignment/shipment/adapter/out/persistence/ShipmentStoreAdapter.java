@@ -46,13 +46,16 @@ class ShipmentStoreAdapter implements ShipmentStore, IssuedIdReader {
 
 	@Override
 	public Optional<Shipment> findById(String shipmentId) {
-		return Optional.ofNullable(this.query.selectFrom(shipment).where(shipment.shipmentId.eq(shipmentId)).fetchOne())
+		ShipmentEntity found = this.query.selectFrom(shipment)
+			.where(shipment.shipmentId.eq(shipmentId))
+			.fetchOne();
+		return Optional.ofNullable(found)
 			.map(ShipmentStoreAdapter::toModel);
 	}
 
 	@Override
-	public void insert(Shipment s) {
-		this.em.persist(new ShipmentEntity(s.shipmentId(), s.orderId(), s.itemId(), s.address()));
+	public void insert(Shipment model) {
+		this.em.persist(new ShipmentEntity(model.shipmentId(), model.orderId(), model.itemId(), model.address()));
 		this.em.flush();
 	}
 
@@ -66,8 +69,8 @@ class ShipmentStoreAdapter implements ShipmentStore, IssuedIdReader {
 		return this.query.select(shipment.shipmentId).from(shipment).fetch();
 	}
 
-	private static Shipment toModel(ShipmentEntity e) {
-		return new Shipment(e.shipmentId(), e.orderId(), e.itemId(), e.address());
+	private static Shipment toModel(ShipmentEntity entity) {
+		return new Shipment(entity.shipmentId(), entity.orderId(), entity.itemId(), entity.address());
 	}
 
 }

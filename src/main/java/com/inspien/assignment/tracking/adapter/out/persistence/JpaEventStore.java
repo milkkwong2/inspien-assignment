@@ -20,9 +20,9 @@ class JpaEventStore implements EventStore {
 	private EntityManager em;
 
 	@Override
-	public void insert(EventRecord e) {
-		this.em.persist(new ProcessEventEntity(e.id(), e.occurredAt(), e.messageId(), e.orderId(), e.stage(),
-				e.result(), e.detail()));
+	public void insert(EventRecord event) {
+		this.em.persist(new ProcessEventEntity(event.id(), event.occurredAt(), event.messageId(), event.orderId(),
+				event.stage(), event.result(), event.detail()));
 	}
 
 	@Override
@@ -48,8 +48,9 @@ class JpaEventStore implements EventStore {
 			.toList();
 	}
 
-	private static EventRecord toModel(ProcessEventEntity e) {
-		return new EventRecord(e.id(), e.occurredAt(), e.messageId(), e.orderId(), e.stage(), e.result(), e.detail());
+	private static EventRecord toModel(ProcessEventEntity entity) {
+		return new EventRecord(entity.id(), entity.occurredAt(), entity.messageId(), entity.orderId(), entity.stage(),
+				entity.result(), entity.detail());
 	}
 
 }

@@ -100,10 +100,14 @@ public class RetryService {
 	public Failure recordFailure(String orderId, Stage stage, String error) {
 		StageState current = current(orderId, stage);
 		int attempts = current.attempts() + 1;
-		boolean exhausted = this.policy.exhausted(attempts);
-		Instant next = exhausted ? null : this.policy.nextAttemptAt(this.clock.instant(), attempts);
-		this.store.save(current.failed(truncate(error), next, exhausted));
-		return new Failure(attempts, exhausted, next);
+		String message = truncate(error);
+		if (this.policy.exhausted(attempts)) {
+			this.store.save(current.exhausted(message));
+			return Failure.exhausted(attempts);
+		}
+		Instant next = this.policy.nextAttemptAt(this.clock.instant(), attempts);
+		this.store.save(current.failed(message, next));
+		return Failure.retryAt(attempts, next);
 	}
 
 	/**
@@ -111,7 +115,8 @@ public class RetryService {
 	 */
 	@HistoryTx
 	public void markFailed(String orderId, Stage stage, String error) {
-		this.store.save(current(orderId, stage).markedFailed(truncate(error)));
+		StageState failed = current(orderId, stage).markedFailed(truncate(error));
+		this.store.save(failed);
 	}
 
 	/**
@@ -120,7 +125,8 @@ public class RetryService {
 	 */
 	@HistoryTx
 	public void recordCompletion(String orderId, Stage stage, String artifact) {
-		this.store.save(current(orderId, stage).completed(artifact, this.clock.instant()));
+		StageState completed = current(orderId, stage).completed(artifact, this.clock.instant());
+		this.store.save(completed);
 	}
 
 	/**
@@ -133,7 +139,8 @@ public class RetryService {
 			return current.artifact();
 		}
 		String artifact = assign.get();
-		this.store.save(current.withArtifact(artifact));
+		StageState assigned = current.withArtifact(artifact);
+		this.store.save(assigned);
 		return artifact;
 	}
 
@@ -189,6 +196,15 @@ public class RetryService {
 	 * @param nextAttemptAt 다음 시도 시각 (한도면 null)
 	 */
 	public record Failure(int attempts, boolean exhausted, Instant nextAttemptAt) {
+
+		static Failure retryAt(int attempts, Instant nextAttemptAt) {
+			return new Failure(attempts, false, nextAttemptAt);
+		}
+
+		static Failure exhausted(int attempts) {
+			return new Failure(attempts, true, null);
+		}
+
 	}
 
 }

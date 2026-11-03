@@ -36,8 +36,8 @@ class StageEventsTest {
 	@Test
 	void failureShowsNextAttemptInLocalTimeUntilExhausted() {
 		this.events.failed("A001", Stage.RECEIPT,
-				new RetryService.Failure(2, false, Instant.parse("2026-10-31T05:07:12.345Z")), "업로드 실패");
-		this.events.failed("A001", Stage.SHIPMENT, new RetryService.Failure(5, true, null), "등록 거절");
+				RetryService.Failure.retryAt(2, Instant.parse("2026-10-31T05:07:12.345Z")), "업로드 실패");
+		this.events.failed("A001", Stage.SHIPMENT, RetryService.Failure.exhausted(5), "등록 거절");
 
 		assertThat(this.published).extracting(ProcessEvent::stage, ProcessEvent::result, ProcessEvent::detail)
 			.containsExactly(

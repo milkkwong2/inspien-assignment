@@ -37,7 +37,8 @@ public class NumberingService {
 	 */
 	@HistoryTx
 	public String next(IdSequence sequence) {
-		return IdFormat.format(this.sequences.next(sequence));
+		long value = this.sequences.next(sequence);
+		return IdFormat.format(value);
 	}
 
 	/**
@@ -59,9 +60,9 @@ public class NumberingService {
 				maxIssued = Math.max(maxIssued, value);
 			}
 			long next = this.sequences.raiseNextTo(reader.sequence(), maxIssued + 1);
-			log.info("{} 채번 동기화: 내 최댓값 {}, 다음 발급 {}", reader.sequence(),
-					(maxIssued == 0) ? "없음" : IdFormat.format(maxIssued),
-					(next > IdFormat.MAX) ? "소진" : IdFormat.format(next));
+			String maxText = (maxIssued == 0) ? "없음" : IdFormat.format(maxIssued);
+			String nextText = (next > IdFormat.MAX) ? "소진" : IdFormat.format(next);
+			log.info("{} 채번 동기화: 내 최댓값 {}, 다음 발급 {}", reader.sequence(), maxText, nextText);
 		}
 	}
 

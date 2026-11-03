@@ -90,10 +90,8 @@ class XmlOrderMessageParser implements OrderMessageParser {
 				continue;
 			}
 			switch (element.getTagName()) {
-				case "HEADER" -> headers.add(new OrderMessage.Header(childText(element, "USER_ID"),
-						childText(element, "NAME"), childText(element, "ADDRESS")));
-				case "ITEM" -> items.add(new OrderMessage.Item(items.size() + 1, childText(element, "USER_ID"),
-						childText(element, "ITEM_ID"), childText(element, "ITEM_NAME"), childText(element, "PRICE")));
+				case "HEADER" -> headers.add(header(element));
+				case "ITEM" -> items.add(item(element, items.size() + 1));
 				default -> {
 					// 모르는 최상위 요소는 무시한다 (Tolerant Reader, D-04)
 				}
@@ -126,6 +124,19 @@ class XmlOrderMessageParser implements OrderMessageParser {
 	/**
 	 * 바로 아래 자식 요소의 글자. 앞뒤 공백은 지우고, 요소가 없거나 비어 있으면 null.
 	 */
+	private static OrderMessage.Header header(Element element) {
+		return new OrderMessage.Header(childText(element, "USER_ID"), childText(element, "NAME"),
+				childText(element, "ADDRESS"));
+	}
+
+	/**
+	 * @param seq 본문 안 ITEM 순서 (1부터). 주문번호와 짝을 맞추는 기준이다
+	 */
+	private static OrderMessage.Item item(Element element, int seq) {
+		return new OrderMessage.Item(seq, childText(element, "USER_ID"), childText(element, "ITEM_ID"),
+				childText(element, "ITEM_NAME"), childText(element, "PRICE"));
+	}
+
 	private static String childText(Element parent, String name) {
 		for (Node node = parent.getFirstChild(); node != null; node = node.getNextSibling()) {
 			if (node instanceof Element element && element.getTagName().equals(name)) {

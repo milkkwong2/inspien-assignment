@@ -27,7 +27,8 @@ class JpaStageStore implements StageStore {
 
 	@Override
 	public Optional<StageState> find(String orderId, Stage stage) {
-		return Optional.ofNullable(this.em.find(OrderStageEntity.class, new OrderStageEntity.Key(orderId, stage.name())))
+		OrderStageEntity found = this.em.find(OrderStageEntity.class, new OrderStageEntity.Key(orderId, stage.name()));
+		return Optional.ofNullable(found)
 			.map(JpaStageStore::toModel);
 	}
 
@@ -48,15 +49,16 @@ class JpaStageStore implements StageStore {
 	}
 
 	@Override
-	public void save(StageState s) {
+	public void save(StageState state) {
 		OrderStageEntity entity = this.em.find(OrderStageEntity.class,
-				new OrderStageEntity.Key(s.orderId(), s.stage().name()));
+				new OrderStageEntity.Key(state.orderId(), state.stage().name()));
 		boolean isNew = (entity == null);
 		if (isNew) {
-			entity = new OrderStageEntity(s.orderId(), s.stage().name());
+			entity = new OrderStageEntity(state.orderId(), state.stage().name());
 		}
 		// persist 전에 값을 채운다. Hibernate는 persist 시점의 값으로 INSERT한다
-		entity.update(s.attempts(), s.nextAttemptAt(), s.reachedFailed(), s.lastError(), s.artifact(), s.completedAt());
+		entity.update(state.attempts(), state.nextAttemptAt(), state.reachedFailed(), state.lastError(),
+				state.artifact(), state.completedAt());
 		if (isNew) {
 			this.em.persist(entity);
 		}
@@ -74,9 +76,10 @@ class JpaStageStore implements StageStore {
 			.executeUpdate() == 1;
 	}
 
-	private static StageState toModel(OrderStageEntity e) {
-		return new StageState(e.orderId(), Stage.valueOf(e.stage()), e.attempts(), e.nextAttemptAt(),
-				e.reachedFailed(), e.lastError(), e.artifact(), e.completedAt());
+	private static StageState toModel(OrderStageEntity entity) {
+		return new StageState(entity.orderId(), Stage.valueOf(entity.stage()), entity.attempts(),
+				entity.nextAttemptAt(), entity.reachedFailed(), entity.lastError(), entity.artifact(),
+				entity.completedAt());
 	}
 
 }

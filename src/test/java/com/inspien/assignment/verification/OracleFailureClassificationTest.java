@@ -97,7 +97,7 @@ class OracleFailureClassificationTest {
 
 	@Test
 	void primaryKeyConflictIsIntegrityViolation() {
-		normal.tx.executeWithoutResult(s -> normal.em.persist(new ProbeOrder("A102", "dup", "N")));
+		normal.tx.executeWithoutResult(status -> normal.em.persist(new ProbeOrder("A102", "dup", "N")));
 
 		RuntimeException flushed = attempt(normal, em -> {
 			em.persist(new ProbeOrder("A102", "dup", "N"));

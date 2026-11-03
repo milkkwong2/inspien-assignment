@@ -28,7 +28,10 @@ class OrderReceiveController {
 	@PostMapping("/orders")
 	ApiResponse<ReceiveResult> receive(@RequestBody(required = false) byte[] body,
 			@RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType) {
-		return ApiResponse.of(this.service.receive((body != null) ? body : new byte[0], contentType));
+		// 빈 요청도 받아 파싱 실패(400)로 기록한다. required=true면 Spring이 먼저 400을 내 기록이 남지 않는다
+		byte[] received = (body != null) ? body : new byte[0];
+		ReceiveResult result = this.service.receive(received, contentType);
+		return ApiResponse.of(result);
 	}
 
 }

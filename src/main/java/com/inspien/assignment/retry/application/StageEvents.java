@@ -41,19 +41,23 @@ public class StageEvents {
 	 * 건별 실패 1회. 한도에 닿았으면 그 단계 FAILED(사람이 확인), 아니면 다음 시도 시각.
 	 */
 	public void failed(String orderId, Stage stage, RetryService.Failure failure, String error) {
-		String detail = failure.exhausted()
-				? "%d회째 실패, %s FAILED (사람이 확인): %s".formatted(failure.attempts(), label(stage), error)
-				: "%d회째 실패, 다음 시도 %s: %s".formatted(failure.attempts(),
-						LocalTime.ofInstant(failure.nextAttemptAt(), this.clock.getZone()).truncatedTo(ChronoUnit.SECONDS),
-						error);
-		this.events.publish(null, orderId, of(stage), Result.FAIL, detail);
+		String detail;
+		if (failure.exhausted()) {
+			detail = "%d회째 실패, %s FAILED (사람이 확인): %s".formatted(failure.attempts(), label(stage), error);
+		}
+		else {
+			LocalTime next = LocalTime.ofInstant(failure.nextAttemptAt(), this.clock.getZone())
+				.truncatedTo(ChronoUnit.SECONDS);
+			detail = "%d회째 실패, 다음 시도 %s: %s".formatted(failure.attempts(), next, error);
+		}
+		this.events.publishForOrder(orderId, of(stage), Result.FAIL, detail);
 	}
 
 	/**
 	 * 다시 해도 결과가 같은 실패: 재시도 없이 그 단계 FAILED.
 	 */
 	public void failedWithoutRetry(String orderId, Stage stage, String error) {
-		this.events.publish(null, orderId, of(stage), Result.FAIL,
+		this.events.publishForOrder(orderId, of(stage), Result.FAIL,
 				"%s FAILED (사람이 확인): %s".formatted(label(stage), error));
 	}
 
@@ -61,12 +65,12 @@ public class StageEvents {
 	 * H2에 수신 기록이 없어 재시도 없이 그 단계 FAILED (D-22).
 	 */
 	public void missingRecord(String orderId, Stage stage) {
-		this.events.publish(null, orderId, of(stage), Result.MISSING_RECORD,
+		this.events.publishForOrder(orderId, of(stage), Result.MISSING_RECORD,
 				"H2에 수신 기록이 없어 %s FAILED. 주문번호 %s".formatted(label(stage), orderId));
 	}
 
 	public void operatorReset(String orderId, Stage stage) {
-		this.events.publish(null, orderId, of(stage), Result.OPERATOR_RESET, "운영자 재처리: 표시 해제, 횟수 0부터 다시 처리");
+		this.events.publishForOrder(orderId, of(stage), Result.OPERATOR_RESET, "운영자 재처리: 표시 해제, 횟수 0부터 다시 처리");
 	}
 
 	private static String label(Stage stage) {

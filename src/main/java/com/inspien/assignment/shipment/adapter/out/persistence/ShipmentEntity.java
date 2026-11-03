@@ -74,8 +74,8 @@ class ShipmentEntity {
 		}
 
 		@Override
-		public boolean equals(Object o) {
-			return o instanceof Key other && Objects.equals(this.shipmentId, other.shipmentId)
+		public boolean equals(Object object) {
+			return object instanceof Key other && Objects.equals(this.shipmentId, other.shipmentId)
 					&& Objects.equals(this.applicantKey, other.applicantKey);
 		}
 

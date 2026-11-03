@@ -92,7 +92,7 @@ class OperationsIntegrationTest {
 		assertThat(restarted.nextAttemptAt()).isNull();
 		assertThat(restarted.lastError()).as("원인 확인용으로 남긴다").isEqualTo("업로드 권한 오류");
 		assertThat(this.events.stream(ProcessEvent.class)
-			.filter(e -> orderId.equals(e.orderId()) && e.result() == ProcessEvent.Result.OPERATOR_RESET)
+			.filter(event -> orderId.equals(event.orderId()) && event.result() == ProcessEvent.Result.OPERATOR_RESET)
 			.count()).isEqualTo(1);
 
 		this.receipts.runCycle();

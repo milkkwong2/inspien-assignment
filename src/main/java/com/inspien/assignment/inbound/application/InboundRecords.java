@@ -70,8 +70,9 @@ class InboundRecords {
 	List<AssignedOrder> assignOrderIds(String messageId, Instant receivedAt, List<OrderAssembly.Accepted> accepted) {
 		List<AssignedOrder> assigned = new ArrayList<>();
 		for (OrderAssembly.Accepted a : accepted) {
-			assigned.add(new AssignedOrder(this.numbering.next(IdSequence.ORDER), messageId, a.seq(),
-					a.item().userId(), a.item().itemId(), receivedAt));
+			String orderId = this.numbering.next(IdSequence.ORDER);
+			assigned.add(new AssignedOrder(orderId, messageId, a.seq(), a.item().userId(), a.item().itemId(),
+					receivedAt));
 		}
 		this.store.insertAssigned(assigned);
 		return assigned;

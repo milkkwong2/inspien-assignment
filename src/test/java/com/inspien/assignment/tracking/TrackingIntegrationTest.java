@@ -114,6 +114,30 @@ class TrackingIntegrationTest {
 	}
 
 	@Test
+	void messageListAppliesOnlyGivenConditions() throws Exception {
+		String first = JsonPath.read(receive("M").getResponse().getContentAsString(), "$.data.messageId");
+		String second = JsonPath.read(receive("N").getResponse().getContentAsString(), "$.data.messageId");
+		// 테스트 시계가 고정이라 두 메시지의 수신 시각이 같다
+		String receivedAt = "2026-10-31T14:05:12+09:00";
+
+		MvcResult afterFirst = this.mvc
+			.perform(get("/tracking/messages").param("state", "COMPLETED").param("after", first))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data[*].messageId", hasItems(second)))
+			.andReturn();
+		List<String> ids = JsonPath.read(afterFirst.getResponse().getContentAsString(), "$.data[*].messageId");
+		assertThat(ids).as("커서 뒤만").allSatisfy(id -> assertThat(id).isGreaterThan(first));
+
+		this.mvc.perform(get("/tracking/messages").param("from", receivedAt).param("after", first))
+			.andExpect(jsonPath("$.data[*].messageId", hasItems(second)));
+		MvcResult beforeReceived = this.mvc.perform(get("/tracking/messages").param("to", receivedAt))
+			.andExpect(status().isOk())
+			.andReturn();
+		List<String> none = JsonPath.read(beforeReceived.getResponse().getContentAsString(), "$.data[*].messageId");
+		assertThat(none).as("to는 그 시각을 포함하지 않는다").doesNotContain(first, second);
+	}
+
+	@Test
 	void orderWithoutHistoryFollowsOracleY() throws Exception {
 		// H2를 잃은 뒤의 끝난 주문: Y를 따른다. 이력만 없다 (설계서 §4.2)
 		this.orders.insertAll(List.of(Order.received("Z901", "U", "I", "N", "A", "IN", "1")));

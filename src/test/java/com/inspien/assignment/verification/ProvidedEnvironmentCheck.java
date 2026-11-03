@@ -62,58 +62,58 @@ public final class ProvidedEnvironmentCheck {
 		props.setProperty("oracle.net.CONNECT_TIMEOUT", "5000");
 		props.setProperty("oracle.jdbc.ReadTimeout", "20000");
 		long start = System.nanoTime();
-		try (Connection c = DriverManager.getConnection(db.get("URL").asString(), props)) {
+		try (Connection connection = DriverManager.getConnection(db.get("URL").asString(), props)) {
 			print("접속 시간", millis(start) + "ms");
-			c.setAutoCommit(false);
-			c.setReadOnly(true);
+			connection.setAutoCommit(false);
+			connection.setReadOnly(true);
 			try {
-				query(c, "버전", "SELECT PRODUCT, VERSION_FULL FROM PRODUCT_COMPONENT_VERSION");
-				query(c, "버전(v$version)", "SELECT BANNER_FULL FROM V$VERSION");
-				query(c, "DB 문자셋·길이 단위",
+				query(connection, "버전", "SELECT PRODUCT, VERSION_FULL FROM PRODUCT_COMPONENT_VERSION");
+				query(connection, "버전(v$version)", "SELECT BANNER_FULL FROM V$VERSION");
+				query(connection, "DB 문자셋·길이 단위",
 						"SELECT PARAMETER, VALUE FROM NLS_DATABASE_PARAMETERS WHERE PARAMETER IN "
 								+ "('NLS_CHARACTERSET', 'NLS_NCHAR_CHARACTERSET', 'NLS_LENGTH_SEMANTICS')");
-				query(c, "접속 계정", "SELECT USER FROM DUAL");
-				query(c, "테이블 소유", "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB')");
-				query(c, "동의어", "SELECT SYNONYM_NAME, TABLE_OWNER, TABLE_NAME FROM ALL_SYNONYMS "
+				query(connection, "접속 계정", "SELECT USER FROM DUAL");
+				query(connection, "테이블 소유", "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB')");
+				query(connection, "동의어", "SELECT SYNONYM_NAME, TABLE_OWNER, TABLE_NAME FROM ALL_SYNONYMS "
 						+ "WHERE SYNONYM_NAME IN ('ORDER_TB', 'SHIPMENT_TB') AND OWNER IN (USER, 'PUBLIC')");
-				query(c, "컬럼 (길이 단위 CHAR_USED: B=바이트, C=글자)",
+				query(connection, "컬럼 (길이 단위 CHAR_USED: B=바이트, C=글자)",
 						"SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, CHAR_LENGTH, CHAR_USED, NULLABLE "
 								+ "FROM ALL_TAB_COLUMNS WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB') "
 								+ "ORDER BY OWNER, TABLE_NAME, COLUMN_ID");
-				query(c, "제약", "SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, SEARCH_CONDITION_VC FROM ALL_CONSTRAINTS "
+				query(connection, "제약", "SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, SEARCH_CONDITION_VC FROM ALL_CONSTRAINTS "
 						+ "WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB') ORDER BY TABLE_NAME, CONSTRAINT_TYPE");
-				query(c, "PK 컬럼", "SELECT c.TABLE_NAME, c.CONSTRAINT_NAME, c.COLUMN_NAME, c.POSITION FROM ALL_CONS_COLUMNS c "
+				query(connection, "PK 컬럼", "SELECT c.TABLE_NAME, c.CONSTRAINT_NAME, c.COLUMN_NAME, c.POSITION FROM ALL_CONS_COLUMNS c "
 						+ "JOIN ALL_CONSTRAINTS k ON k.OWNER = c.OWNER AND k.CONSTRAINT_NAME = c.CONSTRAINT_NAME "
 						+ "WHERE k.CONSTRAINT_TYPE = 'P' AND c.TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB') "
 						+ "ORDER BY c.TABLE_NAME, c.POSITION");
-				query(c, "기본값", "SELECT TABLE_NAME, COLUMN_NAME, DATA_DEFAULT FROM ALL_TAB_COLUMNS "
+				query(connection, "기본값", "SELECT TABLE_NAME, COLUMN_NAME, DATA_DEFAULT FROM ALL_TAB_COLUMNS "
 						+ "WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB') AND DATA_DEFAULT IS NOT NULL");
-				query(c, "트리거", "SELECT TABLE_NAME, TRIGGER_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, STATUS FROM ALL_TRIGGERS "
+				query(connection, "트리거", "SELECT TABLE_NAME, TRIGGER_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, STATUS FROM ALL_TRIGGERS "
 						+ "WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB')");
-				query(c, "인덱스", "SELECT TABLE_NAME, INDEX_NAME, UNIQUENESS FROM ALL_INDEXES "
+				query(connection, "인덱스", "SELECT TABLE_NAME, INDEX_NAME, UNIQUENESS FROM ALL_INDEXES "
 						+ "WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB')");
-				query(c, "현재 스키마", "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL");
-				query(c, "내 계정의 테이블 권한", "SELECT TABLE_NAME, PRIVILEGE FROM USER_TAB_PRIVS "
+				query(connection, "현재 스키마", "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL");
+				query(connection, "내 계정의 테이블 권한", "SELECT TABLE_NAME, PRIVILEGE FROM USER_TAB_PRIVS "
 						+ "WHERE TABLE_NAME IN ('ORDER_TB', 'SHIPMENT_TB') ORDER BY TABLE_NAME, PRIVILEGE");
-				query(c, "세션 한도", "SELECT RESOURCE_NAME, LIMIT FROM USER_RESOURCE_LIMITS "
+				query(connection, "세션 한도", "SELECT RESOURCE_NAME, LIMIT FROM USER_RESOURCE_LIMITS "
 						+ "WHERE RESOURCE_NAME = 'SESSIONS_PER_USER'");
-				query(c, "프로필 세션 한도", "SELECT p.RESOURCE_NAME, p.LIMIT FROM DBA_PROFILES p JOIN USER_USERS u "
+				query(connection, "프로필 세션 한도", "SELECT p.RESOURCE_NAME, p.LIMIT FROM DBA_PROFILES p JOIN USER_USERS u "
 						+ "ON p.PROFILE = u.PROFILE WHERE p.RESOURCE_NAME = 'SESSIONS_PER_USER'");
-				query(c, "ORDER_TB 전체 (건수, 지원자 수)",
+				query(connection, "ORDER_TB 전체 (건수, 지원자 수)",
 						"SELECT COUNT(*), COUNT(DISTINCT APPLICANT_KEY) FROM ORDER_TB");
-				query(c, "ORDER_TB 상태값 분포 (전체)", "SELECT STATUS, COUNT(*) FROM ORDER_TB GROUP BY STATUS ORDER BY 2 DESC");
-				query(c, "SHIPMENT_TB 전체 (건수, 지원자 수)",
+				query(connection, "ORDER_TB 상태값 분포 (전체)", "SELECT STATUS, COUNT(*) FROM ORDER_TB GROUP BY STATUS ORDER BY 2 DESC");
+				query(connection, "SHIPMENT_TB 전체 (건수, 지원자 수)",
 						"SELECT COUNT(*), COUNT(DISTINCT APPLICANT_KEY) FROM SHIPMENT_TB");
-				queryWithKey(c, "내 ORDER_TB (건수, 최대 ORDER_ID)",
+				queryWithKey(connection, "내 ORDER_TB (건수, 최대 ORDER_ID)",
 						"SELECT COUNT(*), MAX(ORDER_ID) FROM ORDER_TB WHERE APPLICANT_KEY = ?", applicantKey);
-				queryWithKey(c, "내 SHIPMENT_TB (건수, 최대 SHIPMENT_ID)",
+				queryWithKey(connection, "내 SHIPMENT_TB (건수, 최대 SHIPMENT_ID)",
 						"SELECT COUNT(*), MAX(SHIPMENT_ID) FROM SHIPMENT_TB WHERE APPLICANT_KEY = ?", applicantKey);
-				long t = System.nanoTime();
-				query(c, null, "SELECT 1 FROM DUAL");
-				print("단순 쿼리 응답 시간", millis(t) + "ms");
+				long started = System.nanoTime();
+				query(connection, null, "SELECT 1 FROM DUAL");
+				print("단순 쿼리 응답 시간", millis(started) + "ms");
 			}
 			finally {
-				c.rollback();
+				connection.rollback();
 			}
 		}
 		catch (SQLException ex) {
@@ -141,9 +141,9 @@ public final class ProvidedEnvironmentCheck {
 			print("로그인 디렉토리", client.printWorkingDirectory());
 			print("업로드 경로 이동", path + " → " + client.changeWorkingDirectory(path));
 			client.enterLocalPassiveMode();
-			long t = System.nanoTime();
+			long started = System.nanoTime();
 			FTPFile[] files = client.listFiles();
-			print("목록 조회", ((files != null) ? files.length : -1) + "개 (" + millis(t) + "ms)");
+			print("목록 조회", ((files != null) ? files.length : -1) + "개 (" + millis(started) + "ms)");
 			if (files != null) {
 				describeNames(files);
 			}
@@ -176,8 +176,8 @@ public final class ProvidedEnvironmentCheck {
 		for (FTPFile file : files) {
 			byte[] raw = file.getName().getBytes(StandardCharsets.ISO_8859_1);
 			boolean ascii = true;
-			for (byte b : raw) {
-				ascii &= (b >= 0);
+			for (byte value : raw) {
+				ascii &= (value >= 0);
 			}
 			if (ascii) {
 				continue;
@@ -219,8 +219,8 @@ public final class ProvidedEnvironmentCheck {
 		}
 	}
 
-	static void query(Connection c, String title, String sql) {
-		try (PreparedStatement ps = c.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+	static void query(Connection connection, String title, String sql) {
+		try (PreparedStatement ps = connection.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
 			printRows(title, rs);
 		}
 		catch (SQLException ex) {
@@ -230,8 +230,8 @@ public final class ProvidedEnvironmentCheck {
 		}
 	}
 
-	static void queryWithKey(Connection c, String title, String sql, String key) {
-		try (PreparedStatement ps = c.prepareStatement(sql)) {
+	static void queryWithKey(Connection connection, String title, String sql, String key) {
+		try (PreparedStatement ps = connection.prepareStatement(sql)) {
 			ps.setString(1, key);
 			try (ResultSet rs = ps.executeQuery()) {
 				printRows(title, rs);

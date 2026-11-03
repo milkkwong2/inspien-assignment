@@ -35,27 +35,29 @@ public final class DbFailures {
 	}
 
 	public static boolean isConnectionOrResource(Throwable ex) {
-		for (Throwable t = ex; t != null; t = t.getCause()) {
-			if (isConnectionOrResourceType(t)) {
+		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+			if (isConnectionOrResourceType(cause)) {
 				return true;
 			}
 		}
 		return false;
 	}
 
-	private static boolean isConnectionOrResourceType(Throwable t) {
+	private static boolean isConnectionOrResourceType(Throwable cause) {
 		// 풀 대기 초과, 접속 거부 (트랜잭션 시작 시점)
-		return t instanceof CannotCreateTransactionException
+		return cause instanceof CannotCreateTransactionException
 				// 작업 중 연결 끊김·응답 시간 초과, 커밋 중 시간 초과(결과 불명)
-				|| t instanceof DataAccessResourceFailureException || t instanceof RecoverableDataAccessException
-				|| t instanceof TransientDataAccessResourceException || t instanceof QueryTimeoutException
+				|| cause instanceof DataAccessResourceFailureException
+				|| cause instanceof RecoverableDataAccessException
+				|| cause instanceof TransientDataAccessResourceException || cause instanceof QueryTimeoutException
 				// 끊긴 연결에서 롤백·커밋이 실패해 원래 예외를 덮어쓴 경우
-				|| t instanceof org.hibernate.TransactionException
-				|| t instanceof SQLRecoverableException || t instanceof SQLTransientConnectionException
-				|| t instanceof SQLNonTransientConnectionException
+				|| cause instanceof org.hibernate.TransactionException
+				|| cause instanceof SQLRecoverableException || cause instanceof SQLTransientConnectionException
+				|| cause instanceof SQLNonTransientConnectionException
 				// SQLState 08xxx: 연결 예외 클래스
-				|| (t instanceof SQLException sql && sql.getSQLState() != null && sql.getSQLState().startsWith("08"))
-				|| t instanceof SocketTimeoutException || t instanceof ConnectException;
+				|| (cause instanceof SQLException sql && sql.getSQLState() != null
+						&& sql.getSQLState().startsWith("08"))
+				|| cause instanceof SocketTimeoutException || cause instanceof ConnectException;
 	}
 
 }

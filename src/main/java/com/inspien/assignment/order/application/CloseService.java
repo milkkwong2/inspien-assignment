@@ -46,7 +46,8 @@ public class CloseService {
 
 	public void runCycle() {
 		try {
-			List<String> done = this.stages.selectAllDone(this.orders.findIdsByStatus(OrderStatus.N), this.batchSize);
+			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
+			List<String> done = this.stages.selectAllDone(candidates, this.batchSize);
 			for (String orderId : done) {
 				close(orderId);
 			}
@@ -60,7 +61,7 @@ public class CloseService {
 		MDC.put("orderId", orderId);
 		try {
 			if (this.orders.close(orderId)) {
-				this.events.publish(null, orderId, ProcessEvent.Stage.CLOSE, ProcessEvent.Result.SUCCESS,
+				this.events.publishForOrder(orderId, ProcessEvent.Stage.CLOSE, ProcessEvent.Result.SUCCESS,
 						"영수증·배송 모두 완료, STATUS N→Y");
 			}
 		}

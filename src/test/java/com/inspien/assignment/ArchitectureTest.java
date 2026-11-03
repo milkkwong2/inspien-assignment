@@ -102,7 +102,7 @@ class ArchitectureTest {
 		.resideInAPackage(ROOT + ".global..")
 		.should()
 		.dependOnClassesThat()
-		.resideInAnyPackage(DOMAINS.stream().map(d -> ROOT + "." + d + "..").toArray(String[]::new))
+		.resideInAnyPackage(DOMAINS.stream().map(domain -> ROOT + "." + domain + "..").toArray(String[]::new))
 		.allowEmptyShould(true);
 
 	@ArchTest

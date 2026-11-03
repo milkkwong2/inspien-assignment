@@ -37,7 +37,9 @@ public class InboundQueryService {
 
 	@HistoryTx(readOnly = true)
 	public Optional<AssignedOrder> assignment(String orderId) {
-		return this.store.findAssignedByOrderIds(List.of(orderId)).stream().findFirst();
+		return this.store.findAssignedByOrderIds(List.of(orderId))
+			.stream()
+			.findFirst();
 	}
 
 	@HistoryTx(readOnly = true)

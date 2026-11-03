@@ -40,10 +40,10 @@ public class FakeFtp implements ReceiptUploader {
 			@Override
 			public void upload(String fileName, byte[] content) {
 				if (FakeFtp.this.failUploadsContaining != null && fileName.contains(FakeFtp.this.failUploadsContaining)) {
-					throw new UploadFailedException("553 Could not create file.", false, null);
+					throw UploadFailedException.rejected("553 Could not create file.");
 				}
 				if (FakeFtp.this.files.containsKey(fileName)) {
-					throw new UploadFailedException("553 Could not create file. (덮어쓰기 불가)", false, null);
+					throw UploadFailedException.rejected("553 Could not create file. (덮어쓰기 불가)");
 				}
 				FakeFtp.this.files.put(fileName, content);
 				FakeFtp.this.uploads.add(fileName);

@@ -48,13 +48,25 @@ public interface ReceiptUploader {
 
 		private final boolean connectionLost;
 
-		/**
-		 * @param connectionLost 도중에 연결이 끊김. 원인이 파일인지 네트워크인지 구분할 수 없어 건별 실패 1회를 세고
-		 * 주기를 끝낸다
-		 */
-		public UploadFailedException(String message, boolean connectionLost, Throwable cause) {
+		private UploadFailedException(String message, boolean connectionLost, Throwable cause) {
 			super(message, cause);
 			this.connectionLost = connectionLost;
+		}
+
+		/**
+		 * 서버가 이 파일을 거절했다 (권한, 같은 이름 있음 등). 그 주문만 실패다.
+		 *
+		 * @param reply 서버 응답
+		 */
+		public static UploadFailedException rejected(String reply) {
+			return new UploadFailedException(reply, false, null);
+		}
+
+		/**
+		 * 올리는 도중에 연결이 끊겼다. 원인이 파일인지 네트워크인지 구분할 수 없어 건별 실패 1회를 세고 주기를 끝낸다.
+		 */
+		public static UploadFailedException connectionLost(Throwable cause) {
+			return new UploadFailedException(cause.getClass().getSimpleName() + " " + cause.getMessage(), true, cause);
 		}
 
 		public boolean connectionLost() {

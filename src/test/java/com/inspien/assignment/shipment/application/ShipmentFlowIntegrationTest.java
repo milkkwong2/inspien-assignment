@@ -248,7 +248,7 @@ class ShipmentFlowIntegrationTest {
 	}
 
 	private long count(ProcessEvent.Result result) {
-		return this.events.stream(ProcessEvent.class).filter(e -> e.result() == result).count();
+		return this.events.stream(ProcessEvent.class).filter(event -> event.result() == result).count();
 	}
 
 	@TestConfiguration

@@ -46,7 +46,10 @@ public class OperationsService {
 		for (Stage stage : restarted) {
 			this.stageEvents.operatorReset(orderId, stage);
 		}
-		return new RetryView(orderId, restarted.stream().map(Stage::name).toList());
+		List<String> stageNames = restarted.stream()
+			.map(Stage::name)
+			.toList();
+		return new RetryView(orderId, stageNames);
 	}
 
 }

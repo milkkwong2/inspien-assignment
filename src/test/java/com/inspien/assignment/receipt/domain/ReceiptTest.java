@@ -58,14 +58,14 @@ class ReceiptTest {
 		long size = 100;
 
 		assertThat(UploadPlan.of(RECEIPT, Map.of("영수증_김철수_A002.csv", 100L), size))
-			.isEqualTo(new UploadPlan("영수증_홍길동_A002.csv", true, false));
+			.isEqualTo(UploadPlan.initialUpload("영수증_홍길동_A002.csv"));
 		assertThat(UploadPlan.of(RECEIPT, Map.of("영수증_홍길동_A002.csv", 100L), size))
-			.isEqualTo(new UploadPlan("영수증_홍길동_A002.csv", false, false));
+			.isEqualTo(UploadPlan.alreadyUploaded("영수증_홍길동_A002.csv"));
 		assertThat(UploadPlan.of(RECEIPT, Map.of("영수증_홍길동_A002.csv", 40L), size))
-			.isEqualTo(new UploadPlan("영수증_홍길동_A002_r1.csv", true, true));
+			.isEqualTo(UploadPlan.replacePartial("영수증_홍길동_A002_r1.csv"));
 		// 정본은 재시도 번호가 가장 큰 파일
 		assertThat(UploadPlan.of(RECEIPT, Map.of("영수증_홍길동_A002.csv", 40L, "영수증_홍길동_A002_r1.csv", 100L), size))
-			.isEqualTo(new UploadPlan("영수증_홍길동_A002_r1.csv", false, false));
+			.isEqualTo(UploadPlan.alreadyUploaded("영수증_홍길동_A002_r1.csv"));
 	}
 
 }

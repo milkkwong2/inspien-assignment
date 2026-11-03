@@ -236,7 +236,7 @@ class ReceiveOrderIntegrationTest {
 			Future<MvcResult> second = executor.submit(() -> this.mvc.perform(post("/orders").content(body)).andReturn());
 
 			List<MvcResult> results = new ArrayList<>(List.of(first.get(), second.get()));
-			assertThat(results).allSatisfy(r -> assertThat(r.getResponse().getStatus()).isEqualTo(200));
+			assertThat(results).allSatisfy(response -> assertThat(response.getResponse().getStatus()).isEqualTo(200));
 			assertThat(orderIds(results.get(1))).isEqualTo(orderIds(results.get(0)));
 			assertThat(JsonPath.<Boolean>read(results.get(1).getResponse().getContentAsString(), "$.data.replayed"))
 				.isTrue();

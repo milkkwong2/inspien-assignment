@@ -27,7 +27,8 @@ class OperationsController {
 
 	@PostMapping("/orders/{orderId}/retry")
 	ApiResponse<TrackingViews.RetryView> retry(@PathVariable String orderId) {
-		return ApiResponse.of(this.operations.retry(orderId));
+		TrackingViews.RetryView result = this.operations.retry(orderId);
+		return ApiResponse.of(result);
 	}
 
 }

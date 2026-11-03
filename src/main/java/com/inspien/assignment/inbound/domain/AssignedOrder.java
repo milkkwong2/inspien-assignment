@@ -1,6 +1,9 @@
 package com.inspien.assignment.inbound.domain;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 메시지 안 ITEM에 미리 배정한 주문번호 (H2 MESSAGE_ORDER).
@@ -17,5 +20,13 @@ import java.time.Instant;
  */
 public record AssignedOrder(String orderId, String messageId, int seq, String userId, String itemId,
 		Instant receivedAt) {
+
+	/**
+	 * 메시지 안 ITEM 순서 → 미리 배정한 주문번호. 받아들인 ITEM과 배정한 번호는 이 순서로 짝을 맞춘다.
+	 */
+	public static Map<Integer, String> orderIdsBySeq(List<AssignedOrder> assigned) {
+		return assigned.stream()
+			.collect(Collectors.toMap(AssignedOrder::seq, AssignedOrder::orderId));
+	}
 
 }

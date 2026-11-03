@@ -29,7 +29,7 @@ class OrderAssemblyTest {
 
 		OrderAssembly assembly = OrderAssembly.of(message, LIMIT);
 
-		assertThat(assembly.accepted()).extracting(a -> a.seq() + ":" + a.header().name())
+		assertThat(assembly.accepted()).extracting(accepted -> accepted.seq() + ":" + accepted.header().name())
 			.containsExactly("1:이서연", "2:김민수", "3:김민수");
 		assertThat(assembly.rejected())
 			.containsExactly(new Rejected(4, "USER09", "ITEM30", IssueReason.HEADER_NOT_FOUND, null));

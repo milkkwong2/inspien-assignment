@@ -42,9 +42,9 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 
 	@Override
 	public void insertAll(List<Order> orders) {
-		for (Order o : orders) {
-			this.em.persist(new OrderEntity(o.orderId(), o.userId(), o.itemId(), o.name(), o.address(), o.itemName(),
-					o.price(), o.status().name()));
+		for (Order model : orders) {
+			this.em.persist(new OrderEntity(model.orderId(), model.userId(), model.itemId(), model.name(),
+					model.address(), model.itemName(), model.price(), model.status().name()));
 		}
 		// PK 충돌을 커밋 전에 여기서 드러낸다
 		this.em.flush();
@@ -66,7 +66,10 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 
 	@Override
 	public Optional<Order> findById(String orderId) {
-		return Optional.ofNullable(this.query.selectFrom(order).where(order.orderId.eq(orderId)).fetchOne())
+		OrderEntity found = this.query.selectFrom(order)
+			.where(order.orderId.eq(orderId))
+			.fetchOne();
+		return Optional.ofNullable(found)
 			.map(OrderStoreAdapter::toModel);
 	}
 
@@ -110,9 +113,9 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 		return this.query.select(order.orderId).from(order).fetch();
 	}
 
-	private static Order toModel(OrderEntity e) {
-		return new Order(e.orderId(), e.userId(), e.itemId(), e.name(), e.address(), e.itemName(), e.price(),
-				OrderStatus.fromDb(e.status()));
+	private static Order toModel(OrderEntity entity) {
+		return new Order(entity.orderId(), entity.userId(), entity.itemId(), entity.name(), entity.address(),
+				entity.itemName(), entity.price(), OrderStatus.fromDb(entity.status()));
 	}
 
 }

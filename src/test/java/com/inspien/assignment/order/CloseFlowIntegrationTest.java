@@ -144,8 +144,8 @@ class CloseFlowIntegrationTest {
 
 	private long closeEvents(String orderId) {
 		return this.events.stream(ProcessEvent.class)
-			.filter(e -> orderId.equals(e.orderId()) && e.stage() == ProcessEvent.Stage.CLOSE
-					&& e.result() == ProcessEvent.Result.SUCCESS)
+			.filter(event -> orderId.equals(event.orderId()) && event.stage() == ProcessEvent.Stage.CLOSE
+					&& event.result() == ProcessEvent.Result.SUCCESS)
 			.count();
 	}
 

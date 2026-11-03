@@ -68,11 +68,15 @@ public class TrackingQueryService {
 		Order order = this.orders.findById(orderId)
 			.orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "주문이 없습니다: " + orderId));
 		Optional<AssignedOrder> assigned = this.inbound.assignment(orderId);
-		return new OrderDetail(order.orderId(), order.status().name(), assigned.map(AssignedOrder::messageId).orElse(null),
-				assigned.map(a -> time(a.receivedAt())).orElse(null), order.userId(), order.itemId(),
-				stage(order.status(), Stage.RECEIPT, this.retry.find(orderId, Stage.RECEIPT).orElse(null)),
-				stage(order.status(), Stage.SHIPMENT, this.retry.find(orderId, Stage.SHIPMENT).orElse(null)),
-				eventsOfOrder(orderId));
+		String messageId = assigned.map(AssignedOrder::messageId).orElse(null);
+		OffsetDateTime receivedAt = assigned.map(assignment -> time(assignment.receivedAt())).orElse(null);
+		StageState receiptState = this.retry.find(orderId, Stage.RECEIPT).orElse(null);
+		StageState shipmentState = this.retry.find(orderId, Stage.SHIPMENT).orElse(null);
+		StageView receipt = receiptView(order.status(), receiptState);
+		StageView shipment = shipmentView(order.status(), shipmentState);
+		List<EventView> events = eventsOfOrder(orderId);
+		return new OrderDetail(order.orderId(), order.status().name(), messageId, receivedAt, order.userId(),
+				order.itemId(), receipt, shipment, events);
 	}
 
 	/**
@@ -103,25 +107,38 @@ public class TrackingQueryService {
 		List<String> pageIds = hasMore ? matched.subList(0, limit) : matched;
 		List<OrderSummary> items = new ArrayList<>();
 		for (String id : pageIds) {
-			OrderStatus status = statuses.get(id);
-			StageState r = stages.get(Stage.RECEIPT).get(id);
-			StageState s = stages.get(Stage.SHIPMENT).get(id);
-			AssignedOrder a = assigned.get(id);
-			items.add(new OrderSummary(id, status.name(), stageStatus(status, r).name(), stageStatus(status, s).name(),
-					(a != null) ? a.messageId() : null, (a != null) ? time(a.receivedAt()) : null,
-					lastError(status, r, s)));
+			StageState receiptState = stages.get(Stage.RECEIPT).get(id);
+			StageState shipmentState = stages.get(Stage.SHIPMENT).get(id);
+			items.add(toOrderSummary(id, statuses.get(id), receiptState, shipmentState, assigned.get(id)));
 		}
-		return new Page<>(items, hasMore ? pageIds.getLast() : null, limit);
+		String nextAfter = hasMore ? pageIds.getLast() : null;
+		return new Page<>(items, nextAfter, limit);
+	}
+
+	private OrderSummary toOrderSummary(String orderId, OrderStatus status, StageState receiptState,
+			StageState shipmentState, AssignedOrder assignment) {
+		String receiptStatus = stageStatus(status, receiptState).name();
+		String shipmentStatus = stageStatus(status, shipmentState).name();
+		String messageId = (assignment != null) ? assignment.messageId() : null;
+		OffsetDateTime receivedAt = (assignment != null) ? time(assignment.receivedAt()) : null;
+		String lastError = lastError(status, receiptState, shipmentState);
+		return new OrderSummary(orderId, status.name(), receiptStatus, shipmentStatus, messageId, receivedAt,
+				lastError);
 	}
 
 	public MessageDetail message(String messageId) {
-		MessageSummary m = this.inbound.message(messageId)
+		MessageSummary message = this.inbound.message(messageId)
 			.orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "메시지가 없습니다: " + messageId));
-		ReceiveResult r = m.result();
-		return new MessageDetail(m.messageId(), m.state().name(), m.responseStatus(), time(m.receivedAt()),
-				time(m.completedAt()), m.errorCode(), m.errorDetail(), (r != null) ? r.summary() : null,
-				(r != null) ? r.stored() : null, (r != null) ? r.rejected() : null, (r != null) ? r.warnings() : null,
-				eventsOfMessage(messageId));
+		// 완료된 메시지만 수신 결과가 있다. 실패면 오류 코드와 detail만 있다
+		ReceiveResult result = message.result();
+		ReceiveResult.Summary summary = (result != null) ? result.summary() : null;
+		List<ReceiveResult.Stored> stored = (result != null) ? result.stored() : null;
+		List<ReceiveResult.Rejected> rejected = (result != null) ? result.rejected() : null;
+		List<ReceiveResult.Warning> warnings = (result != null) ? result.warnings() : null;
+		List<EventView> events = eventsOfMessage(messageId);
+		return new MessageDetail(message.messageId(), message.state().name(), message.responseStatus(),
+				time(message.receivedAt()), time(message.completedAt()), message.errorCode(), message.errorDetail(),
+				summary, stored, rejected, warnings, events);
 	}
 
 	/**
@@ -133,19 +150,35 @@ public class TrackingQueryService {
 		boolean hasMore = found.size() > limit;
 		List<MessageSummary> page = hasMore ? found.subList(0, limit) : found;
 		List<MessageSummaryView> items = page.stream()
-			.map(m -> new MessageSummaryView(m.messageId(), m.state().name(), m.responseStatus(), time(m.receivedAt()),
-					m.errorCode()))
+			.map(this::summaryView)
 			.toList();
-		return new Page<>(items, hasMore ? page.getLast().messageId() : null, limit);
+		String nextAfter = hasMore ? page.getLast().messageId() : null;
+		return new Page<>(items, nextAfter, limit);
 	}
 
-	private StageView stage(OrderStatus status, Stage stage, StageState s) {
-		String derived = stageStatus(status, s).name();
-		if (s == null) {
+	/**
+	 * 영수증 단계. 결과물 칸(ARTIFACT)에는 영수증 파일명이 들어 있다.
+	 */
+	private StageView receiptView(OrderStatus status, StageState state) {
+		String fileName = (state != null) ? state.artifact() : null;
+		return stageView(status, state, fileName, null);
+	}
+
+	/**
+	 * 배송 단계. 결과물 칸(ARTIFACT)에는 미리 배정한 SHIPMENT_ID가 들어 있다.
+	 */
+	private StageView shipmentView(OrderStatus status, StageState state) {
+		String shipmentId = (state != null) ? state.artifact() : null;
+		return stageView(status, state, null, shipmentId);
+	}
+
+	private StageView stageView(OrderStatus status, StageState state, String fileName, String shipmentId) {
+		String derived = stageStatus(status, state).name();
+		if (state == null) {
 			return new StageView(derived, 0, null, null, null, null, null);
 		}
-		return new StageView(derived, s.attempts(), time(s.nextAttemptAt()), time(s.completedAt()), s.lastError(),
-				(stage == Stage.RECEIPT) ? s.artifact() : null, (stage == Stage.SHIPMENT) ? s.artifact() : null);
+		return new StageView(derived, state.attempts(), time(state.nextAttemptAt()), time(state.completedAt()),
+				state.lastError(), fileName, shipmentId);
 	}
 
 	/**
@@ -175,24 +208,36 @@ public class TrackingQueryService {
 	 * 끝나지 않은 단계의 마지막 오류. 영수증을 먼저 본다.
 	 */
 	private static String lastError(OrderStatus status, StageState... states) {
-		for (StageState s : states) {
-			if (s != null && stageStatus(status, s) != StageStatus.DONE && s.lastError() != null) {
-				return s.lastError();
+		for (StageState state : states) {
+			if (state != null && stageStatus(status, state) != StageStatus.DONE && state.lastError() != null) {
+				return state.lastError();
 			}
 		}
 		return null;
 	}
 
 	private List<EventView> eventsOfOrder(String orderId) {
-		return this.events.findByOrderId(orderId).stream().map(this::view).toList();
+		return this.events.findByOrderId(orderId)
+			.stream()
+			.map(this::view)
+			.toList();
 	}
 
 	private List<EventView> eventsOfMessage(String messageId) {
-		return this.events.findByMessageId(messageId).stream().map(this::view).toList();
+		return this.events.findByMessageId(messageId)
+			.stream()
+			.map(this::view)
+			.toList();
 	}
 
-	private EventView view(EventRecord e) {
-		return new EventView(time(e.occurredAt()), e.stage(), e.result(), e.detail(), e.messageId(), e.orderId());
+	private EventView view(EventRecord event) {
+		return new EventView(time(event.occurredAt()), event.stage(), event.result(), event.detail(),
+				event.messageId(), event.orderId());
+	}
+
+	private MessageSummaryView summaryView(MessageSummary message) {
+		return new MessageSummaryView(message.messageId(), message.state().name(), message.responseStatus(),
+				time(message.receivedAt()), message.errorCode());
 	}
 
 	private static boolean inRange(AssignedOrder assigned, Instant from, Instant to) {

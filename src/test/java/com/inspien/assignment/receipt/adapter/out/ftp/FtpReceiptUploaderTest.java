@@ -44,7 +44,8 @@ class FtpReceiptUploaderTest {
 			List<ExposedPort> exposed = new ArrayList<>(List.of(cmd.getExposedPorts()));
 			List<PortBinding> bindings = new ArrayList<>(cmd.getHostConfig().getPortBindings().getBindings().entrySet()
 				.stream()
-				.flatMap(e -> java.util.Arrays.stream(e.getValue()).map(b -> new PortBinding(b, e.getKey())))
+				.flatMap(entry -> java.util.Arrays.stream(entry.getValue())
+					.map(binding -> new PortBinding(binding, entry.getKey())))
 				.toList());
 			for (int port = PASV_MIN; port <= PASV_MAX; port++) {
 				exposed.add(ExposedPort.tcp(port));

@@ -7,12 +7,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.cfg.DateTimeFeature;
 import tools.jackson.databind.json.JsonMapper;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
 import com.inspien.assignment.inbound.application.MessageSummary;
@@ -39,24 +42,31 @@ class JpaMessageStore implements MessageStore {
 	@PersistenceContext(unitName = "history")
 	private EntityManager em;
 
+	private static final QReceivedMessageEntity message = QReceivedMessageEntity.receivedMessageEntity;
+
 	private final ReceivedMessageRepository messages;
 
 	private final MessageOrderRepository messageOrders;
 
-	JpaMessageStore(ReceivedMessageRepository messages, MessageOrderRepository messageOrders) {
+	private final JPAQueryFactory query;
+
+	JpaMessageStore(ReceivedMessageRepository messages, MessageOrderRepository messageOrders,
+			@Qualifier("historyQueryFactory") JPAQueryFactory query) {
 		this.messages = messages;
 		this.messageOrders = messageOrders;
+		this.query = query;
 	}
 
 	@Override
 	public Optional<ReceivedMessage> findLatestByKey(MessageKey key) {
-		return this.messages.findFirstByMessageKeyOrderByIdDesc(key.value()).map(JpaMessageStore::toModel);
+		return this.messages.findFirstByMessageKeyOrderByIdDesc(key.value())
+			.map(JpaMessageStore::toModel);
 	}
 
 	@Override
-	public void insert(ReceivedMessage m) {
-		this.em.persist(new ReceivedMessageEntity(m.id(), m.key().value(), m.receivedAt(), m.contentType(),
-				m.rawBody(), m.state().name()));
+	public void insert(ReceivedMessage message) {
+		this.em.persist(new ReceivedMessageEntity(message.id(), message.key().value(), message.receivedAt(),
+				message.contentType(), message.rawBody(), message.state().name()));
 	}
 
 	@Override
@@ -80,8 +90,8 @@ class JpaMessageStore implements MessageStore {
 	@Override
 	public Optional<ReceiveResult> findResult(String messageId) {
 		return this.messages.findById(messageId)
-			.filter(m -> MessageState.COMPLETED.name().equals(m.state()) && m.responseBody() != null)
-			.map(m -> JSON.readValue(m.responseBody(), ReceiveResult.class));
+			.filter(entity -> MessageState.COMPLETED.name().equals(entity.state()) && entity.responseBody() != null)
+			.map(entity -> JSON.readValue(entity.responseBody(), ReceiveResult.class));
 	}
 
 	@Override
@@ -94,65 +104,72 @@ class JpaMessageStore implements MessageStore {
 
 	@Override
 	public List<AssignedOrder> findAssignedByOrderIds(Collection<String> orderIds) {
-		return this.messageOrders.findByOrderIdIn(orderIds).stream().map(JpaMessageStore::toModel).toList();
+		return this.messageOrders.findByOrderIdIn(orderIds)
+			.stream()
+			.map(JpaMessageStore::toModel)
+			.toList();
 	}
 
 	@Override
 	public void insertAssigned(List<AssignedOrder> orders) {
-		for (AssignedOrder o : orders) {
-			this.em.persist(new MessageOrderEntity(o.orderId(), o.messageId(), o.seq(), o.userId(), o.itemId(),
-					o.receivedAt()));
+		for (AssignedOrder assigned : orders) {
+			this.em.persist(new MessageOrderEntity(assigned.orderId(), assigned.messageId(), assigned.seq(),
+					assigned.userId(), assigned.itemId(), assigned.receivedAt()));
 		}
 	}
 
 	@Override
 	public Optional<MessageSummary> findSummary(String messageId) {
-		return this.messages.findById(messageId).map(JpaMessageStore::toSummary);
+		return this.messages.findById(messageId)
+			.map(JpaMessageStore::toSummary);
 	}
 
 	@Override
 	public List<MessageSummary> findSummaries(MessageState state, Instant from, Instant to, String after, int limit) {
-		StringBuilder jpql = new StringBuilder("select m from ReceivedMessageEntity m where 1 = 1");
-		Map<String, Object> params = new LinkedHashMap<>();
-		if (state != null) {
-			jpql.append(" and m.state = :state");
-			params.put("state", state.name());
-		}
-		if (from != null) {
-			jpql.append(" and m.receivedAt >= :from");
-			params.put("from", from);
-		}
-		if (to != null) {
-			jpql.append(" and m.receivedAt < :to");
-			params.put("to", to);
-		}
-		if (after != null) {
-			jpql.append(" and m.id > :after");
-			params.put("after", after);
-		}
-		jpql.append(" order by m.id asc");
-		var query = this.em.createQuery(jpql.toString(), ReceivedMessageEntity.class).setMaxResults(limit);
-		params.forEach(query::setParameter);
-		return query.getResultList().stream().map(JpaMessageStore::toSummary).toList();
+		// where에 null을 넘기면 그 조건은 빠진다. 값이 있는 조건만 붙는다
+		List<ReceivedMessageEntity> found = this.query.selectFrom(message)
+			.where(stateIs(state), receivedFrom(from), receivedBefore(to), idAfter(after))
+			.orderBy(message.id.asc())
+			.limit(limit)
+			.fetch();
+		return found.stream()
+			.map(JpaMessageStore::toSummary)
+			.toList();
 	}
 
-	private static MessageSummary toSummary(ReceivedMessageEntity e) {
-		MessageState state = MessageState.valueOf(e.state());
+	private static BooleanExpression stateIs(MessageState state) {
+		return (state != null) ? message.state.eq(state.name()) : null;
+	}
+
+	private static BooleanExpression receivedFrom(Instant from) {
+		return (from != null) ? message.receivedAt.goe(from) : null;
+	}
+
+	private static BooleanExpression receivedBefore(Instant to) {
+		return (to != null) ? message.receivedAt.lt(to) : null;
+	}
+
+	private static BooleanExpression idAfter(String after) {
+		return (after != null) ? message.id.gt(after) : null;
+	}
+
+	private static MessageSummary toSummary(ReceivedMessageEntity entity) {
+		MessageState state = MessageState.valueOf(entity.state());
 		ReceiveResult result = null;
 		String errorCode = null;
 		String errorDetail = null;
-		if (e.responseBody() != null) {
+		if (entity.responseBody() != null) {
 			if (state == MessageState.COMPLETED) {
-				result = JSON.readValue(e.responseBody(), ReceiveResult.class);
+				result = JSON.readValue(entity.responseBody(), ReceiveResult.class);
 			}
 			else {
-				JsonNode body = JSON.readTree(e.responseBody());
+				JsonNode body = JSON.readTree(entity.responseBody());
 				errorCode = body.path("code").asString(null);
 				errorDetail = body.path("detail").asString(null);
 			}
 		}
-		return new MessageSummary(e.id(), state, e.responseStatus(), e.receivedAt(), e.completedAt(), errorCode,
-				errorDetail, result);
+		return new MessageSummary(entity.id(), state, entity.responseStatus(), entity.receivedAt(),
+				entity.completedAt(), errorCode, errorDetail, result);
 	}
 
 	private ReceivedMessageEntity find(String messageId) {
@@ -160,13 +177,15 @@ class JpaMessageStore implements MessageStore {
 			.orElseThrow(() -> new IllegalStateException("수신 기록이 없습니다: " + messageId));
 	}
 
-	private static ReceivedMessage toModel(ReceivedMessageEntity e) {
-		return new ReceivedMessage(e.id(), new MessageKey(e.messageKey()), e.receivedAt(), e.contentType(),
-				e.rawBody(), MessageState.valueOf(e.state()), e.responseStatus(), e.completedAt());
+	private static ReceivedMessage toModel(ReceivedMessageEntity entity) {
+		return new ReceivedMessage(entity.id(), new MessageKey(entity.messageKey()), entity.receivedAt(),
+				entity.contentType(), entity.rawBody(), MessageState.valueOf(entity.state()), entity.responseStatus(),
+				entity.completedAt());
 	}
 
-	private static AssignedOrder toModel(MessageOrderEntity e) {
-		return new AssignedOrder(e.orderId(), e.messageId(), e.seq(), e.userId(), e.itemId(), e.receivedAt());
+	private static AssignedOrder toModel(MessageOrderEntity entity) {
+		return new AssignedOrder(entity.orderId(), entity.messageId(), entity.seq(), entity.userId(), entity.itemId(),
+				entity.receivedAt());
 	}
 
 }

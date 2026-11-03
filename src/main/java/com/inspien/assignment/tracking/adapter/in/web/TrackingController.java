@@ -43,7 +43,8 @@ class TrackingController {
 
 	@GetMapping("/orders/{orderId}")
 	ApiResponse<TrackingViews.OrderDetail> order(@PathVariable String orderId) {
-		return ApiResponse.of(this.tracking.order(orderId));
+		TrackingViews.OrderDetail result = this.tracking.order(orderId);
+		return ApiResponse.of(result);
 	}
 
 	@GetMapping("/orders")
@@ -54,13 +55,18 @@ class TrackingController {
 			@RequestParam(required = false) String after, @RequestParam(required = false) Integer limit) {
 		StageStatus receiptStatus = parse(receipt, StageStatus::parse, "receipt");
 		StageStatus shipmentStatus = parse(shipment, StageStatus::parse, "shipment");
-		return page(this.tracking.orders(receiptStatus, shipmentStatus, instant(from), instant(to), after,
-				limit(limit)));
+		Instant fromAt = instant(from);
+		Instant toAt = instant(to);
+		int size = limit(limit);
+		TrackingViews.Page<TrackingViews.OrderSummary> result = this.tracking.orders(receiptStatus, shipmentStatus,
+				fromAt, toAt, after, size);
+		return page(result);
 	}
 
 	@GetMapping("/messages/{messageId}")
 	ApiResponse<TrackingViews.MessageDetail> message(@PathVariable String messageId) {
-		return ApiResponse.of(this.tracking.message(messageId));
+		TrackingViews.MessageDetail result = this.tracking.message(messageId);
+		return ApiResponse.of(result);
 	}
 
 	@GetMapping("/messages")
@@ -68,15 +74,13 @@ class TrackingController {
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
 			@RequestParam(required = false) String after, @RequestParam(required = false) Integer limit) {
-		MessageState parsed = parse(state, s -> {
-			for (MessageState value : MessageState.values()) {
-				if (value.name().equals(s)) {
-					return value;
-				}
-			}
-			return null;
-		}, "state");
-		return page(this.tracking.messages(parsed, instant(from), instant(to), after, limit(limit)));
+		MessageState messageState = parse(state, MessageState::parse, "state");
+		Instant fromAt = instant(from);
+		Instant toAt = instant(to);
+		int size = limit(limit);
+		TrackingViews.Page<TrackingViews.MessageSummaryView> result = this.tracking.messages(messageState, fromAt,
+				toAt, after, size);
+		return page(result);
 	}
 
 	private static <T> ApiResponse<List<T>> page(TrackingViews.Page<T> page) {

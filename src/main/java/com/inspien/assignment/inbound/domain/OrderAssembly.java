@@ -5,8 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+
+import com.inspien.assignment.order.domain.Order;
 
 /**
  * HEADER와 ITEM을 USER_ID로 잇고 검증해, 저장할 주문·거부·경고로 나눈다 (D-07).
@@ -41,9 +44,9 @@ public record OrderAssembly(List<Accepted> accepted, List<Rejected> rejected, Li
 				usersWithItems.add(item.userId());
 			}
 			List<OrderMessage.Header> headers = (item.userId() != null) ? headersByUser.get(item.userId()) : null;
-			Rejected rejection = validate(item, headers, limit);
-			if (rejection != null) {
-				rejected.add(rejection);
+			Optional<Rejected> rejection = findRejection(item, headers, limit);
+			if (rejection.isPresent()) {
+				rejected.add(rejection.get());
 			}
 			else {
 				accepted.add(new Accepted(item, headers.getFirst()));
@@ -58,21 +61,25 @@ public record OrderAssembly(List<Accepted> accepted, List<Rejected> rejected, Li
 		return new OrderAssembly(List.copyOf(accepted), List.copyOf(rejected), List.copyOf(warnings));
 	}
 
-	private static Rejected validate(OrderMessage.Item item, List<OrderMessage.Header> headers, ValueLimit limit) {
+	/**
+	 * 이 ITEM을 거부할 사유를 찾는다. 사유가 없으면 저장할 수 있고, 그때 같은 USER_ID의 HEADER는 정확히 하나다.
+	 */
+	private static Optional<Rejected> findRejection(OrderMessage.Item item, List<OrderMessage.Header> headers,
+			ValueLimit limit) {
 		if (item.userId() == null) {
-			return Rejected.of(item, IssueReason.MISSING_USER_ID, null);
+			return Optional.of(Rejected.of(item, IssueReason.MISSING_USER_ID, null));
 		}
 		if (item.itemId() == null) {
-			return Rejected.of(item, IssueReason.MISSING_ITEM_ID, null);
+			return Optional.of(Rejected.of(item, IssueReason.MISSING_ITEM_ID, null));
 		}
 		if (headers == null) {
-			return Rejected.of(item, IssueReason.HEADER_NOT_FOUND, null);
+			return Optional.of(Rejected.of(item, IssueReason.HEADER_NOT_FOUND, null));
 		}
 		if (headers.size() > 1) {
-			return Rejected.of(item, IssueReason.DUPLICATE_HEADER, null);
+			return Optional.of(Rejected.of(item, IssueReason.DUPLICATE_HEADER, null));
 		}
 		if (item.price() == null || !DIGITS.matcher(item.price()).matches()) {
-			return Rejected.of(item, IssueReason.PRICE_NOT_NUMBER, null);
+			return Optional.of(Rejected.of(item, IssueReason.PRICE_NOT_NUMBER, null));
 		}
 		OrderMessage.Header header = headers.getFirst();
 		Map<String, String> values = new LinkedHashMap<>();
@@ -84,10 +91,10 @@ public record OrderAssembly(List<Accepted> accepted, List<Rejected> rejected, Li
 		values.put("PRICE", item.price());
 		for (Map.Entry<String, String> value : values.entrySet()) {
 			if (limit.exceeds(value.getValue())) {
-				return Rejected.of(item, IssueReason.VALUE_TOO_LONG, value.getKey());
+				return Optional.of(Rejected.of(item, IssueReason.VALUE_TOO_LONG, value.getKey()));
 			}
 		}
-		return null;
+		return Optional.empty();
 	}
 
 	/**
@@ -97,6 +104,14 @@ public record OrderAssembly(List<Accepted> accepted, List<Rejected> rejected, Li
 
 		public int seq() {
 			return this.item.seq();
+		}
+
+		/**
+		 * 정규 모델로 바꾼다. 주문자 정보는 HEADER, 상품 정보는 ITEM에서 온다 (D-07).
+		 */
+		public Order toOrder(String orderId) {
+			return Order.received(orderId, this.item.userId(), this.item.itemId(), this.header.name(),
+					this.header.address(), this.item.itemName(), this.item.price());
 		}
 
 	}

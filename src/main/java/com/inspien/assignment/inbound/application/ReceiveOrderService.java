@@ -34,6 +34,7 @@ import com.inspien.assignment.inbound.domain.AssignedOrder;
 import com.inspien.assignment.inbound.domain.MessageKey;
 import com.inspien.assignment.inbound.domain.MessageParseException;
 import com.inspien.assignment.inbound.domain.OrderAssembly;
+import com.inspien.assignment.inbound.domain.OrderMessage;
 import com.inspien.assignment.inbound.domain.ReceivedMessage;
 import com.inspien.assignment.inbound.domain.ValueLimit;
 import com.inspien.assignment.numbering.domain.IdExhaustedException;
@@ -91,7 +92,8 @@ public class ReceiveOrderService {
 		}
 		try {
 			Optional<ReceivedMessage> latest = history(() -> this.records.findLatest(key));
-			ReceivedMessage.Handling handling = latest.map(m -> m.handlingOf(arrivedAt, this.duplicateWindow))
+			ReceivedMessage.Handling handling = latest
+				.map(previous -> previous.handlingOf(arrivedAt, this.duplicateWindow))
 				.orElse(ReceivedMessage.Handling.NEW);
 			return switch (handling) {
 				case REPLAY -> replay(latest.get());
@@ -122,7 +124,7 @@ public class ReceiveOrderService {
 			// 완료 표시는 있는데 결과가 없다면 기록이 깨진 것이다. 이어서 처리하면 조회로 확인된다
 			return resume(message);
 		}
-		this.events.publish(message.id(), null, Stage.RECEIVE, Result.WARN, "같은 본문 재수신: 이전 결과를 다시 보냄");
+		this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.WARN, "같은 본문 재수신: 이전 결과를 다시 보냄");
 		return stored.get().asReplay(replayNotice());
 	}
 
@@ -132,10 +134,7 @@ public class ReceiveOrderService {
 	 */
 	private ReceiveResult resume(ReceivedMessage message) {
 		MDC.put(MDC_MESSAGE_ID, message.id());
-		history(() -> {
-			this.records.markProcessing(message.id());
-			return null;
-		});
+		history(() -> this.records.markProcessing(message.id()));
 		List<AssignedOrder> assigned = history(() -> this.records.findAssigned(message.id()));
 		return process(message, assigned);
 	}
@@ -146,7 +145,8 @@ public class ReceiveOrderService {
 	private ReceiveResult process(ReceivedMessage message, List<AssignedOrder> alreadyAssigned) {
 		OrderAssembly assembly;
 		try {
-			assembly = OrderAssembly.of(this.parser.parse(message.rawBody(), message.contentType()), this.valueLimit);
+			OrderMessage parsed = this.parser.parse(message.rawBody(), message.contentType());
+			assembly = OrderAssembly.of(parsed, this.valueLimit);
 		}
 		catch (MessageParseException ex) {
 			throw failed(message, ErrorCode.XML_PARSE_ERROR, ex.getMessage(), ex);
@@ -166,17 +166,23 @@ public class ReceiveOrderService {
 		List<Order> toStore = toOrders(assembly, assigned);
 		boolean alreadyStored = !alreadyAssigned.isEmpty() && storedBefore(message, toStore);
 		if (!alreadyStored && !toStore.isEmpty()) {
-			alreadyStored = insert(message, toStore);
+			alreadyStored = insert(message, toStore) == Insertion.ALREADY_STORED;
 		}
 
-		ReceiveResult result = ReceiveResult.of(message.id(), OffsetDateTime.ofInstant(message.receivedAt(),
-				this.clock.getZone()), assembly, assigned);
+		OffsetDateTime receivedAt = OffsetDateTime.ofInstant(message.receivedAt(), this.clock.getZone());
+		ReceiveResult result = ReceiveResult.of(message.id(), receivedAt, assembly, assigned);
 		if (alreadyStored) {
 			// 이번 요청이 저장한 것이 아니므로 사실대로 표시한다 (D-24)
 			result = result.asReplay(replayNotice());
 		}
 		complete(message, result);
-		publishOutcome(message, result, alreadyStored);
+		if (alreadyStored) {
+			publishAlreadyStored(message, result);
+		}
+		else {
+			publishStored(message, result);
+		}
+		publishIssues(message, result);
 		return result;
 	}
 
@@ -195,17 +201,17 @@ public class ReceiveOrderService {
 	/**
 	 * 주문 전체를 한 트랜잭션으로 INSERT한다 (D-05).
 	 *
-	 * @return PK 충돌이었고 다시 조회해 보니 같은 주문이 이미 있었으면 true
+	 * @return 넣었으면 INSERTED. PK 충돌이었는데 다시 조회해 보니 같은 주문이 이미 있었으면 ALREADY_STORED
 	 */
-	private boolean insert(ReceivedMessage message, List<Order> toStore) {
+	private Insertion insert(ReceivedMessage message, List<Order> toStore) {
 		try {
 			this.orders.insertAll(toStore);
-			return false;
+			return Insertion.INSERTED;
 		}
 		catch (DataIntegrityViolationException ex) {
 			// 앞 요청이 포기한 뒤 Oracle에서 늦게 커밋됐을 수 있다. 롤백된 뒤 새 트랜잭션에서 다시 조회한다 (D-19)
 			return switch (compareWithStored(message, toStore)) {
-				case ALL_SAME -> true;
+				case ALL_SAME -> Insertion.ALREADY_STORED;
 				case NONE -> throw failed(message, ErrorCode.ORDER_DB_REJECTED,
 						"쇼핑몰 DB가 저장을 거절했습니다. 연계 담당자에게 문의해 주세요.", ex);
 				case PARTIAL_OR_DIFFERENT -> throw failed(message, ErrorCode.UNEXPECTED_STATE,
@@ -218,9 +224,12 @@ public class ReceiveOrderService {
 	}
 
 	private Comparison compareWithStored(ReceivedMessage message, List<Order> expected) {
+		List<String> orderIds = expected.stream()
+			.map(Order::orderId)
+			.toList();
 		List<Order> existing;
 		try {
-			existing = this.orders.findByIds(expected.stream().map(Order::orderId).toList());
+			existing = this.orders.findByIds(orderIds);
 		}
 		catch (RuntimeException ex) {
 			throw oracleFailure(message, ex);
@@ -228,10 +237,16 @@ public class ReceiveOrderService {
 		if (existing.isEmpty()) {
 			return Comparison.NONE;
 		}
-		Map<String, Order> byId = existing.stream().collect(Collectors.toMap(Order::orderId, Function.identity()));
+		Map<String, Order> storedById = existing.stream()
+			.collect(Collectors.toMap(Order::orderId, Function.identity()));
 		boolean allSame = expected.size() == existing.size()
-				&& expected.stream().allMatch(o -> byId.containsKey(o.orderId()) && byId.get(o.orderId()).sameContentAs(o));
+				&& expected.stream().allMatch(order -> sameAsStored(order, storedById));
 		return allSame ? Comparison.ALL_SAME : Comparison.PARTIAL_OR_DIFFERENT;
+	}
+
+	private static boolean sameAsStored(Order expected, Map<String, Order> storedById) {
+		Order stored = storedById.get(expected.orderId());
+		return stored != null && stored.sameContentAs(expected);
 	}
 
 	/**
@@ -256,9 +271,10 @@ public class ReceiveOrderService {
 		catch (RuntimeException ex) {
 			log.error("수신 실패를 H2에 기록하지 못했습니다: {}", code, ex);
 		}
-		String eventDetail = code + ": " + ((cause != null) ? cause.getClass().getSimpleName() + " " : "") + detail;
-		this.events.publish(message.id(), null, Stage.RECEIVE,
-				(code == ErrorCode.XML_PARSE_ERROR) ? Result.REJECT : Result.FAIL, eventDetail);
+		String causeName = (cause != null) ? cause.getClass().getSimpleName() + " " : "";
+		String eventDetail = code + ": " + causeName + detail;
+		Result result = (code == ErrorCode.XML_PARSE_ERROR) ? Result.REJECT : Result.FAIL;
+		this.events.publishForMessage(message.id(), Stage.RECEIVE, result, eventDetail);
 		return new ApiException(code, detail, message.id(), cause);
 	}
 
@@ -275,37 +291,67 @@ public class ReceiveOrderService {
 		}
 	}
 
-	private void publishOutcome(ReceivedMessage message, ReceiveResult result, boolean alreadyStored) {
+	/**
+	 * 이번 요청이 주문을 저장했다.
+	 */
+	private void publishStored(ReceivedMessage message, ReceiveResult result) {
 		for (ReceiveResult.Stored stored : result.stored()) {
-			this.events.publish(message.id(), stored.orderId(), Stage.RECEIVE,
-					alreadyStored ? Result.SKIP : Result.SUCCESS,
-					"seq=%d %s/%s%s".formatted(stored.seq(), stored.userId(), stored.itemId(),
-							alreadyStored ? " 이미 저장됨" : ""));
+			this.events.publishForOrderInMessage(message.id(), stored.orderId(), Stage.RECEIVE, Result.SUCCESS,
+					storedDetail(stored));
 		}
+	}
+
+	/**
+	 * 주문은 지난 시도에서 이미 저장돼 있었다 (재처리, D-16·D-24).
+	 */
+	private void publishAlreadyStored(ReceivedMessage message, ReceiveResult result) {
+		for (ReceiveResult.Stored stored : result.stored()) {
+			this.events.publishForOrderInMessage(message.id(), stored.orderId(), Stage.RECEIVE, Result.SKIP,
+					storedDetail(stored) + " 이미 저장됨");
+		}
+	}
+
+	private static String storedDetail(ReceiveResult.Stored stored) {
+		return "seq=%d %s/%s".formatted(stored.seq(), stored.userId(), stored.itemId());
+	}
+
+	/**
+	 * 거부한 ITEM과 경고. 저장 여부와 관계없이 남긴다.
+	 */
+	private void publishIssues(ReceivedMessage message, ReceiveResult result) {
 		for (ReceiveResult.Rejected rejected : result.rejected()) {
-			this.events.publish(message.id(), null, Stage.RECEIVE, Result.REJECT, "seq=%d %s/%s %s%s".formatted(
-					rejected.seq(), rejected.userId(), rejected.itemId(), rejected.reason(),
-					(rejected.field() != null) ? "(" + rejected.field() + ")" : ""));
+			String field = (rejected.field() != null) ? "(" + rejected.field() + ")" : "";
+			String detail = "seq=%d %s/%s %s%s".formatted(rejected.seq(), rejected.userId(), rejected.itemId(),
+					rejected.reason(), field);
+			this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.REJECT, detail);
 		}
 		for (ReceiveResult.Warning warning : result.warnings()) {
-			this.events.publish(message.id(), null, Stage.RECEIVE, Result.WARN,
-					warning.userId() + " " + warning.reason());
+			String detail = warning.userId() + " " + warning.reason();
+			this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.WARN, detail);
 		}
 	}
 
 	private List<Order> toOrders(OrderAssembly assembly, List<AssignedOrder> assigned) {
-		Map<Integer, String> orderIdBySeq = assigned.stream()
-			.collect(Collectors.toMap(AssignedOrder::seq, AssignedOrder::orderId));
+		Map<Integer, String> orderIdsBySeq = AssignedOrder.orderIdsBySeq(assigned);
 		return assembly.accepted()
 			.stream()
-			.map(a -> Order.received(orderIdBySeq.get(a.seq()), a.item().userId(), a.item().itemId(),
-					a.header().name(), a.header().address(), a.item().itemName(), a.item().price()))
+			.map(accepted -> accepted.toOrder(orderIdsBySeq.get(accepted.seq())))
 			.toList();
 	}
 
 	private String replayNotice() {
 		return "이전에 받은 같은 본문의 결과입니다. 새 주문이라면 %d분 뒤 다시 보내면 새 주문으로 처리됩니다."
 			.formatted(Math.max(1, this.duplicateWindow.toMinutes()));
+	}
+
+	/**
+	 * 돌려줄 값이 없는 H2 작업. 오류 처리는 아래와 같다.
+	 */
+	private static void history(Runnable work) {
+		history(() -> {
+			work.run();
+			return null;
+		});
 	}
 
 	/**
@@ -319,6 +365,15 @@ public class ReceiveOrderService {
 			throw new ApiException(ErrorCode.HISTORY_DB_UNAVAILABLE, "처리 이력 저장소를 쓸 수 없습니다. 같은 본문을 다시 보내 주세요.",
 					null, ex);
 		}
+	}
+
+	/**
+	 * insert()의 결과. 이미 있던 주문이면 이번 요청이 저장한 것이 아니라서 응답에 표시한다 (D-24).
+	 */
+	private enum Insertion {
+
+		INSERTED, ALREADY_STORED
+
 	}
 
 	private enum Comparison {

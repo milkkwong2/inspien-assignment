@@ -22,6 +22,7 @@ import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.retry.application.ConnectionWatch;
+import com.inspien.assignment.retry.application.NextStep;
 import com.inspien.assignment.retry.application.RetryService;
 import com.inspien.assignment.retry.application.StageEvents;
 import com.inspien.assignment.retry.domain.Stage;
@@ -80,32 +81,34 @@ public class ShipmentService {
 	public void runCycle() {
 		List<String> due;
 		try {
-			due = this.retry.selectDue(STAGE, this.orders.findIdsByStatus(OrderStatus.N), this.batchSize);
+			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
+			due = this.retry.selectDue(STAGE, candidates, this.batchSize);
 		}
 		catch (RuntimeException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다", ex);
 			return;
 		}
 		for (String orderId : due) {
-			if (!processOne(orderId)) {
+			if (processOne(orderId) == NextStep.END_CYCLE) {
 				break;
 			}
 		}
 	}
 
 	/**
-	 * @return 다음 주문을 계속 처리할지
+	 * @return 연결이 끊기거나 우리 쪽 저장소가 안 되면 END_CYCLE. 남은 주문도 같은 이유로 실패한다
 	 */
-	private boolean processOne(String orderId) {
+	private NextStep processOne(String orderId) {
 		MDC.put("orderId", orderId);
 		try {
 			Optional<Order> found = this.orders.findById(orderId);
 			if (found.isEmpty() || found.get().status() != OrderStatus.N) {
-				return true;
+				// 대상을 고른 뒤 마감됐다. 이번 주기에는 건드리지 않는다
+				return NextStep.NEXT_ORDER;
 			}
 			if (this.inbound.receivedAt(orderId).isEmpty()) {
 				missingRecord(orderId);
-				return true;
+				return NextStep.NEXT_ORDER;
 			}
 			String shipmentId = this.retry.artifactOrAssign(orderId, STAGE,
 					() -> this.numbering.next(IdSequence.SHIPMENT));
@@ -113,7 +116,7 @@ public class ShipmentService {
 		}
 		catch (RuntimeException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다. 다음 주기에 사전 확인으로 이어서 처리합니다", ex);
-			return false;
+			return NextStep.END_CYCLE;
 		}
 		finally {
 			MDC.remove("orderId");
@@ -124,22 +127,14 @@ public class ShipmentService {
 	 * 운송 DB 작업만 오류 분류 대상이다. H2 완료 기록은 그 밖에서 해, 실패하면 예외가 processOne으로 올라가 주기를 끝낸다.
 	 * 분류 안에 두면 H2 장애가 배송 건별 실패로 세지거나 운송 DB 연결 실패로 남는다 (D-22, D-26).
 	 */
-	private boolean register(Shipment shipment) {
+	private NextStep register(Shipment shipment) {
 		String orderId = shipment.orderId();
-		String registered;
-		boolean inserted;
+		Optional<Shipment> existing;
 		try {
-			Optional<Shipment> existing = this.registry.findByOrderId(orderId);
+			existing = this.registry.findByOrderId(orderId);
 			this.shipmentDb.connected();
-			if (existing.isPresent()) {
-				// INSERT 후 배송 완료 기록 전에 중단됐던 경우. INSERT 없이 완료만 적는다
-				registered = existing.get().shipmentId();
-				inserted = false;
-			}
-			else {
+			if (existing.isEmpty()) {
 				this.registry.insert(shipment);
-				registered = shipment.shipmentId();
-				inserted = true;
 			}
 		}
 		catch (DataIntegrityViolationException ex) {
@@ -148,18 +143,33 @@ public class ShipmentService {
 		catch (RuntimeException ex) {
 			if (!DbFailures.isConnectionOrResource(ex)) {
 				orderFailed(orderId, "배송 등록 실패: " + rootMessage(ex));
-				return true;
+				return NextStep.NEXT_ORDER;
 			}
 			// 커밋 중 타임아웃(결과 불명)도 여기다. 다음 주기에 같은 SHIPMENT_ID로 다시 시도해, 앞 커밋이 늦게 끝났으면
 			// PK 충돌로 드러난다
 			this.shipmentDb.failed(ex);
-			return false;
+			return NextStep.END_CYCLE;
 		}
-		succeeded(orderId, registered, inserted);
-		return true;
+		if (existing.isPresent()) {
+			// INSERT 후 배송 완료 기록 전에 중단됐던 경우. INSERT 없이 완료만 적는다
+			alreadyRegistered(orderId, existing.get().shipmentId());
+		}
+		else {
+			registered(orderId, shipment.shipmentId());
+		}
+		return NextStep.NEXT_ORDER;
 	}
 
-	private boolean afterKeyConflict(Shipment shipment, DataIntegrityViolationException conflict) {
+	/**
+	 * INSERT가 무결성 위반으로 실패했다. 새 트랜잭션에서 미리 배정한 번호로 다시 조회해 셋으로 나눈다 (D-03, D-19).
+	 * <ul>
+	 * <li>그 번호의 배송이 없다: PK 충돌이 아니라 DB가 이 행을 거절했다. 건별 실패로 센다.</li>
+	 * <li>같은 배송이 있다: 결과를 몰랐던 앞 시도가 늦게 커밋됐다. 완료로 적는다.</li>
+	 * <li>다른 배송이 있다: 다시 해도 결과가 같으므로 재시도 없이 사람에게 넘긴다.</li>
+	 * </ul>
+	 */
+	private NextStep afterKeyConflict(Shipment shipment, DataIntegrityViolationException conflict) {
+		String orderId = shipment.orderId();
 		Optional<Shipment> stored;
 		try {
 			stored = this.registry.findById(shipment.shipmentId());
@@ -167,35 +177,44 @@ public class ShipmentService {
 		catch (RuntimeException ex) {
 			if (DbFailures.isConnectionOrResource(ex)) {
 				this.shipmentDb.failed(ex);
-				return false;
+				return NextStep.END_CYCLE;
 			}
 			throw ex;
 		}
-		if (stored.isPresent() && stored.get().sameAs(shipment)) {
-			// 앞 시도가 늦게 커밋됐다
-			succeeded(shipment.orderId(), shipment.shipmentId(), false);
-			return true;
+
+		if (stored.isEmpty()) {
+			orderFailed(orderId, "배송 등록 거절: " + rootMessage(conflict));
+			return NextStep.NEXT_ORDER;
+		}
+		if (stored.get().sameAs(shipment)) {
+			alreadyRegistered(orderId, shipment.shipmentId());
+			return NextStep.NEXT_ORDER;
 		}
 		String error = "SHIPMENT_ID " + shipment.shipmentId() + "에 다른 배송이 있음: " + rootMessage(conflict);
-		if (stored.isEmpty()) {
-			// PK 충돌이 아닌 무결성 위반: DB가 이 행을 거절했다
-			orderFailed(shipment.orderId(), "배송 등록 거절: " + rootMessage(conflict));
-			return true;
-		}
-		// 다시 해도 결과가 같으므로 재시도 없이 사람에게 넘긴다
-		this.retry.markFailed(shipment.orderId(), STAGE, error);
-		this.stageEvents.failedWithoutRetry(shipment.orderId(), STAGE, error);
-		return true;
+		this.retry.markFailed(orderId, STAGE, error);
+		this.stageEvents.failedWithoutRetry(orderId, STAGE, error);
+		return NextStep.NEXT_ORDER;
 	}
 
-	private void succeeded(String orderId, String shipmentId, boolean inserted) {
+	/**
+	 * 이번에 INSERT했다.
+	 */
+	private void registered(String orderId, String shipmentId) {
 		this.retry.recordCompletion(orderId, STAGE, shipmentId);
-		this.events.publish(null, orderId, ProcessEvent.Stage.SHIPMENT, inserted ? Result.SUCCESS : Result.SKIP,
-				"배송 " + shipmentId + (inserted ? " 등록" : " 이미 있음"));
+		this.events.publishForOrder(orderId, ProcessEvent.Stage.SHIPMENT, Result.SUCCESS, "배송 " + shipmentId + " 등록");
+	}
+
+	/**
+	 * 배송은 이미 있었다(앞 시도가 INSERT했다). 완료만 적는다.
+	 */
+	private void alreadyRegistered(String orderId, String shipmentId) {
+		this.retry.recordCompletion(orderId, STAGE, shipmentId);
+		this.events.publishForOrder(orderId, ProcessEvent.Stage.SHIPMENT, Result.SKIP, "배송 " + shipmentId + " 이미 있음");
 	}
 
 	private void orderFailed(String orderId, String error) {
-		this.stageEvents.failed(orderId, STAGE, this.retry.recordFailure(orderId, STAGE, error), error);
+		RetryService.Failure failure = this.retry.recordFailure(orderId, STAGE, error);
+		this.stageEvents.failed(orderId, STAGE, failure, error);
 	}
 
 	private void missingRecord(String orderId) {

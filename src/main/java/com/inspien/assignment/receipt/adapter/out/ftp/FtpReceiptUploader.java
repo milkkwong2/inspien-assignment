@@ -101,11 +101,11 @@ class FtpReceiptUploader implements ReceiptUploader {
 		public void upload(String fileName, byte[] content) {
 			try {
 				if (!this.client.storeFile(fileName, new ByteArrayInputStream(content))) {
-					throw new UploadFailedException(this.client.getReplyString().strip(), false, null);
+					throw UploadFailedException.rejected(this.client.getReplyString().strip());
 				}
 			}
 			catch (IOException ex) {
-				throw new UploadFailedException(ex.getClass().getSimpleName() + " " + ex.getMessage(), true, ex);
+				throw UploadFailedException.connectionLost(ex);
 			}
 		}
 

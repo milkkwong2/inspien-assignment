@@ -224,12 +224,12 @@ class ReceiptFlowIntegrationTest {
 	}
 
 	private long results(ProcessEvent.Result result) {
-		return this.events.stream(ProcessEvent.class).filter(e -> e.result() == result).count();
+		return this.events.stream(ProcessEvent.class).filter(event -> event.result() == result).count();
 	}
 
 	private long failures(String orderId) {
 		return this.events.stream(ProcessEvent.class)
-			.filter(e -> orderId.equals(e.orderId()) && e.result() == ProcessEvent.Result.FAIL)
+			.filter(event -> orderId.equals(event.orderId()) && event.result() == ProcessEvent.Result.FAIL)
 			.count();
 	}
 

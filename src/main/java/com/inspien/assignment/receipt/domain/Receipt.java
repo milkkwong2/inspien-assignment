@@ -67,11 +67,12 @@ public record Receipt(Order order, OffsetDateTime receivedAt, String applicantNa
 	 * @param bom UTF-8일 때 BOM을 붙일지. 없으면 한국어 엑셀이 CP949로 읽어 한글이 깨진다
 	 */
 	public byte[] content(Charset charset, boolean bom) {
-		Order o = this.order;
-		String text = String.join(",", COLUMNS) + CRLF + String.join(",",
-				List.of(escape(o.orderId()), escape(o.userId()), escape(o.name()), escape(o.itemId()),
-						escape(o.itemName()), escape(o.price()), RECEIVED_AT.format(this.receivedAt)))
-				+ CRLF;
+		Order order = this.order;
+		String header = String.join(",", COLUMNS);
+		String row = String.join(",", List.of(escape(order.orderId()), escape(order.userId()), escape(order.name()),
+				escape(order.itemId()), escape(order.itemName()), escape(order.price()),
+				RECEIVED_AT.format(this.receivedAt)));
+		String text = header + CRLF + row + CRLF;
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		if (bom && charset.equals(StandardCharsets.UTF_8)) {
 			out.writeBytes(UTF8_BOM);

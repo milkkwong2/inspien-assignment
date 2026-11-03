@@ -8,7 +8,7 @@ import java.util.OptionalInt;
  *
  * <pre>
  * 이 주문의 파일 없음                      → 기본 이름으로 업로드
- * 가장 큰 번호 파일의 크기 = 예상 크기     → 이미 완료 (업로드 없이 STATUS만 갱신)
+ * 가장 큰 번호 파일의 크기 = 예상 크기     → 이미 업로드됨 (업로드 없이 H2에 영수증 단계 완료만 기록)
  * 가장 큰 번호 파일의 크기 ≠ 예상 크기     → 반쪽 파일. 다음 번호 _r(N+1)로 업로드
  * </pre>
  *
@@ -19,6 +19,21 @@ import java.util.OptionalInt;
  * @param replacesPartial 반쪽 파일을 대신하는 재업로드인가
  */
 public record UploadPlan(String fileName, boolean upload, boolean replacesPartial) {
+
+	/** 이 주문의 파일이 아직 없다. 기본 이름으로 올린다 */
+	public static UploadPlan initialUpload(String fileName) {
+		return new UploadPlan(fileName, true, false);
+	}
+
+	/** 같은 크기의 파일이 이미 있다. 올리지 않는다 */
+	public static UploadPlan alreadyUploaded(String fileName) {
+		return new UploadPlan(fileName, false, false);
+	}
+
+	/** 반쪽 파일이 있다. 다음 번호로 다시 올린다 */
+	public static UploadPlan replacePartial(String fileName) {
+		return new UploadPlan(fileName, true, true);
+	}
 
 	/**
 	 * @param listing 업로드 경로의 파일명 → 크기
@@ -34,12 +49,12 @@ public record UploadPlan(String fileName, boolean upload, boolean replacesPartia
 			}
 		}
 		if (latest < 0) {
-			return new UploadPlan(receipt.fileName(0), true, false);
+			return initialUpload(receipt.fileName(0));
 		}
 		if (latestSize != null && latestSize == expectedSize) {
-			return new UploadPlan(receipt.fileName(latest), false, false);
+			return alreadyUploaded(receipt.fileName(latest));
 		}
-		return new UploadPlan(receipt.fileName(latest + 1), true, true);
+		return replacePartial(receipt.fileName(latest + 1));
 	}
 
 }

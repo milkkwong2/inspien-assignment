@@ -57,8 +57,8 @@ public class ProbeOrder {
 		}
 
 		@Override
-		public boolean equals(Object o) {
-			return o instanceof Key other && Objects.equals(this.orderId, other.orderId)
+		public boolean equals(Object object) {
+			return object instanceof Key other && Objects.equals(this.orderId, other.orderId)
 					&& Objects.equals(this.applicantKey, other.applicantKey);
 		}
 

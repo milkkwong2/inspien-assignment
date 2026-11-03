@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.application;
+package com.inspien.assignment.stage.application;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -8,9 +8,10 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.event.ProcessEvents;
-import com.inspien.assignment.retry.domain.Stage;
+import com.inspien.assignment.stage.domain.Stage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -27,7 +28,7 @@ class StageEventsTest {
 	final StageEvents events = new StageEvents(new ProcessEvents(event -> this.published.add((ProcessEvent) event), this.clock), this.clock);
 
 	@Test
-	void mapsEveryRetryStageToEventStage() {
+	void mapsEveryStageToEventStage() {
 		for (Stage stage : Stage.values()) {
 			assertThat(StageEvents.of(stage).name()).isEqualTo(stage.name());
 		}
@@ -36,14 +37,14 @@ class StageEventsTest {
 	@Test
 	void failureShowsNextAttemptInLocalTimeUntilExhausted() {
 		this.events.failed("A001", Stage.RECEIPT,
-				RetryService.Failure.retryAt(2, Instant.parse("2026-10-31T05:07:12.345Z")), "업로드 실패");
-		this.events.failed("A001", Stage.SHIPMENT, RetryService.Failure.exhausted(5), "등록 거절");
+				StageService.Failure.retryAt(2, Instant.parse("2026-10-31T05:07:12.345Z")), "업로드 실패");
+		this.events.failed("A001", Stage.SHIPMENT, StageService.Failure.exhausted(5), "등록 거절");
 
 		assertThat(this.published).extracting(ProcessEvent::stage, ProcessEvent::result, ProcessEvent::detail)
 			.containsExactly(
-					tuple(ProcessEvent.Stage.RECEIPT, ProcessEvent.Result.FAIL,
+					tuple(EventStage.RECEIPT, ProcessEvent.Result.FAIL,
 							"2회째 실패, 다음 시도 14:07:12: 업로드 실패"),
-					tuple(ProcessEvent.Stage.SHIPMENT, ProcessEvent.Result.FAIL,
+					tuple(EventStage.SHIPMENT, ProcessEvent.Result.FAIL,
 							"5회째 실패, 배송 FAILED (사람이 확인): 등록 거절"));
 	}
 

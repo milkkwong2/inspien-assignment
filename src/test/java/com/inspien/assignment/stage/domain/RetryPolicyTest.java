@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.domain;
+package com.inspien.assignment.stage.domain;
 
 import java.time.Duration;
 import java.time.Instant;

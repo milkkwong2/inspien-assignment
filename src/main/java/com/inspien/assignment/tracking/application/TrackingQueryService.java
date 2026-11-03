@@ -21,10 +21,10 @@ import com.inspien.assignment.inbound.domain.MessageState;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.tracking.application.TrackingViews.EventView;
 import com.inspien.assignment.tracking.application.TrackingViews.MessageDetail;
 import com.inspien.assignment.tracking.application.TrackingViews.MessageSummaryView;
@@ -49,17 +49,17 @@ public class TrackingQueryService {
 
 	private final InboundQueryService inbound;
 
-	private final RetryService retry;
+	private final StageService stages;
 
 	private final EventStore events;
 
 	private final Clock clock;
 
-	public TrackingQueryService(OrderService orders, InboundQueryService inbound, RetryService retry,
+	public TrackingQueryService(OrderService orders, InboundQueryService inbound, StageService stages,
 			EventStore events, Clock clock) {
 		this.orders = orders;
 		this.inbound = inbound;
-		this.retry = retry;
+		this.stages = stages;
 		this.events = events;
 		this.clock = clock;
 	}
@@ -70,8 +70,8 @@ public class TrackingQueryService {
 		Optional<AssignedOrder> assigned = this.inbound.assignment(orderId);
 		String messageId = assigned.map(AssignedOrder::messageId).orElse(null);
 		OffsetDateTime receivedAt = assigned.map(assignment -> time(assignment.receivedAt())).orElse(null);
-		StageState receiptState = this.retry.find(orderId, Stage.RECEIPT).orElse(null);
-		StageState shipmentState = this.retry.find(orderId, Stage.SHIPMENT).orElse(null);
+		StageState receiptState = this.stages.find(orderId, Stage.RECEIPT).orElse(null);
+		StageState shipmentState = this.stages.find(orderId, Stage.SHIPMENT).orElse(null);
 		StageView receipt = receiptView(order.status(), receiptState);
 		StageView shipment = shipmentView(order.status(), shipmentState);
 		List<EventView> events = eventsOfOrder(orderId);
@@ -93,19 +93,19 @@ public class TrackingQueryService {
 	public Page<OrderSummary> orders(StageStatus receipt, StageStatus shipment, Instant from, Instant to, String after,
 			int limit) {
 		List<String> candidates = inProgressIds(after);
-		Map<Stage, Map<String, StageState>> stages = this.retry.findAll(candidates);
+		Map<Stage, Map<String, StageState>> byStage = this.stages.findAll(candidates);
 		Map<String, AssignedOrder> assigned = this.inbound.assignments(candidates);
 		List<String> matched = candidates.stream()
-			.filter(id -> matches(receipt, stages.get(Stage.RECEIPT).get(id)))
-			.filter(id -> matches(shipment, stages.get(Stage.SHIPMENT).get(id)))
+			.filter(id -> matches(receipt, byStage.get(Stage.RECEIPT).get(id)))
+			.filter(id -> matches(shipment, byStage.get(Stage.SHIPMENT).get(id)))
 			.filter(id -> (from == null && to == null) || inRange(assigned.get(id), from, to))
 			.toList();
 		boolean hasMore = matched.size() > limit;
 		List<String> pageIds = hasMore ? matched.subList(0, limit) : matched;
 		List<OrderSummary> items = new ArrayList<>();
 		for (String id : pageIds) {
-			StageState receiptState = stages.get(Stage.RECEIPT).get(id);
-			StageState shipmentState = stages.get(Stage.SHIPMENT).get(id);
+			StageState receiptState = byStage.get(Stage.RECEIPT).get(id);
+			StageState shipmentState = byStage.get(Stage.SHIPMENT).get(id);
 			items.add(toOrderSummary(id, OrderStatus.N, receiptState, shipmentState, assigned.get(id)));
 		}
 		String nextAfter = hasMore ? pageIds.getLast() : null;

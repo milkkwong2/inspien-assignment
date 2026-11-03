@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.adapter.out.persistence;
+package com.inspien.assignment.stage.adapter.out.persistence;
 
 import java.io.Serializable;
 import java.time.Instant;

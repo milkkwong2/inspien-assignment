@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.application;
+package com.inspien.assignment.stage.application;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -14,11 +14,11 @@ import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.transaction.HistoryTx;
-import com.inspien.assignment.retry.application.port.StageStore;
-import com.inspien.assignment.retry.domain.RetryPolicy;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
+import com.inspien.assignment.stage.application.port.StageStore;
+import com.inspien.assignment.stage.domain.RetryPolicy;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 
 /**
  * 주문·단계별 진행 상태: 단계 완료, 재시도 횟수와 다음 시도 시각, "사람이 확인" 표시 (D-10, D-26). 영수증·배송이 각자 자기
@@ -28,7 +28,7 @@ import com.inspien.assignment.retry.domain.StageStatus;
  * 그대로 올라가 호출한 쪽이 그 주기를 끝낸다 (D-22, D-26).
  */
 @Service
-public class RetryService {
+public class StageService {
 
 	private final StageStore store;
 
@@ -36,7 +36,7 @@ public class RetryService {
 
 	private final Clock clock;
 
-	public RetryService(StageStore store, AppProperties properties, Clock clock) {
+	public StageService(StageStore store, AppProperties properties, Clock clock) {
 		this.store = store;
 		this.policy = new RetryPolicy(properties.retry().maxAttempts(), properties.retry().initialBackoff(),
 				properties.retry().multiplier());

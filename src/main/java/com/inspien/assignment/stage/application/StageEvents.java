@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.application;
+package com.inspien.assignment.stage.application;
 
 import java.time.Clock;
 import java.time.LocalTime;
@@ -6,10 +6,10 @@ import java.time.temporal.ChronoUnit;
 
 import org.springframework.stereotype.Component;
 
-import com.inspien.assignment.global.event.ProcessEvent;
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
 import com.inspien.assignment.global.event.ProcessEvents;
-import com.inspien.assignment.retry.domain.Stage;
+import com.inspien.assignment.stage.domain.Stage;
 
 /**
  * 단계(영수증·배송)의 재시도 상태가 바뀔 때 남기는 처리 이벤트 (D-13, D-26). 영수증·배송·재처리 API가 같은 단계 변환과
@@ -28,19 +28,19 @@ public class StageEvents {
 	}
 
 	/**
-	 * 재시도 단계 → 이벤트 단계. 이벤트에는 재시도 대상이 아닌 수신·마감도 있어 enum이 따로다.
+	 * 단계 → 이벤트 구간(EventStage). 이벤트에는 재시도 대상이 아닌 수신·마감도 있어 enum이 따로다.
 	 */
-	public static ProcessEvent.Stage of(Stage stage) {
+	static EventStage of(Stage stage) {
 		return switch (stage) {
-			case RECEIPT -> ProcessEvent.Stage.RECEIPT;
-			case SHIPMENT -> ProcessEvent.Stage.SHIPMENT;
+			case RECEIPT -> EventStage.RECEIPT;
+			case SHIPMENT -> EventStage.SHIPMENT;
 		};
 	}
 
 	/**
 	 * 건별 실패 1회. 한도에 닿았으면 그 단계 FAILED(사람이 확인), 아니면 다음 시도 시각.
 	 */
-	public void failed(String orderId, Stage stage, RetryService.Failure failure, String error) {
+	public void failed(String orderId, Stage stage, StageService.Failure failure, String error) {
 		String detail;
 		if (failure.exhausted()) {
 			detail = "%d회째 실패, %s FAILED (사람이 확인): %s".formatted(failure.attempts(), label(stage), error);

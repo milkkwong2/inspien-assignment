@@ -24,14 +24,14 @@ import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import com.inspien.assignment.global.transaction.HistoryTx;
 
 /**
- * 앱 소유 H2 파일 DB: 수신 원본, 채번, 재시도 상태, 처리 이벤트 (D-04, D-13).
+ * 앱 소유 H2 파일 DB: 수신 원본, 채번, 단계 진행 상태, 처리 이벤트 (D-04, D-13).
  *
  * <p>여러 도메인이 함께 쓰므로 각 도메인의 persistence 패키지를 나열한다. 빠뜨리면 기동 시 실패해 조용히 틀리지 않고,
  * 이 목록이 "어느 도메인이 H2를 쓰는지"를 보여 준다 (D-21).
  */
 @Configuration(proxyBeanMethods = false)
 @EnableJpaRepositories(
-		basePackages = { HistoryDbConfig.INBOUND, HistoryDbConfig.NUMBERING, HistoryDbConfig.RETRY,
+		basePackages = { HistoryDbConfig.INBOUND, HistoryDbConfig.NUMBERING, HistoryDbConfig.STAGE,
 				HistoryDbConfig.TRACKING },
 		entityManagerFactoryRef = "historyEntityManagerFactory", transactionManagerRef = HistoryTx.MANAGER)
 class HistoryDbConfig {
@@ -40,7 +40,7 @@ class HistoryDbConfig {
 
 	static final String NUMBERING = "com.inspien.assignment.numbering.adapter.out.persistence";
 
-	static final String RETRY = "com.inspien.assignment.retry.adapter.out.persistence";
+	static final String STAGE = "com.inspien.assignment.stage.adapter.out.persistence";
 
 	static final String TRACKING = "com.inspien.assignment.tracking.adapter.out.persistence";
 
@@ -68,7 +68,7 @@ class HistoryDbConfig {
 	@Bean
 	LocalContainerEntityManagerFactoryBean historyEntityManagerFactory(
 			@Qualifier("historyDataSource") DataSource dataSource) {
-		return JpaSupport.entityManagerFactory("history", dataSource, INBOUND, NUMBERING, RETRY, TRACKING);
+		return JpaSupport.entityManagerFactory("history", dataSource, INBOUND, NUMBERING, STAGE, TRACKING);
 	}
 
 	@Bean(HistoryTx.MANAGER)

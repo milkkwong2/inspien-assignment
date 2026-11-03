@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.domain;
+package com.inspien.assignment.stage.domain;
 
 /**
  * 단계 상태 (설계서 §6, D-26). 저장하지 않고 ORDER_STAGE의 COMPLETED_AT·REACHED_FAILED에서 계산한다.

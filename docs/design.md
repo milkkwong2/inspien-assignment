@@ -150,14 +150,15 @@ flowchart LR
 
 | 구성요소 | 패키지 | 책임 | 쓰는 저장소 | 근거 |
 |---|---|---|---|---|
-| 주문 | `order` | 정규 모델 `Order`, 마감 스케줄러(두 단계 모두 완료면 `STATUS` N→Y 조건부 갱신). 다른 도메인은 `OrderService`로만 `ORDER_TB`에 닿는다 | 쇼핑몰 DB (+ `retry`) | D-21, D-26 |
+| 주문 | `order` | 정규 모델 `Order`, 마감 스케줄러(두 단계 모두 완료면 `STATUS` N→Y 조건부 갱신). 다른 도메인은 `OrderService`로만 `ORDER_TB`에 닿는다 | 쇼핑몰 DB (+ `stage`) | D-21, D-26 |
 | 주문 수신 | `inbound` | 메시지 키 결정, 중복 판단, 수신 잠금, 원본 보존, 파싱·검증, 채번 요청, 응답 | H2 (+ `order`) | D-04, D-05, D-07, D-16 |
 | 주문 본문 파서 | `inbound` (포트 + XML 어댑터) | 인코딩 판단·엄격 디코딩, 맨 앞 선언 제거와 루트 감싸기, DOCTYPE 금지 DOM 파싱, 최상위 HEADER·ITEM을 `USER_ID`로 조인해 정규 모델 생성 | — | D-04, D-07, D-20 |
 | 채번기 | `numbering` | `ORDER_ID`·`SHIPMENT_ID` 발급, 시작 시 Oracle 최댓값과 동기화 | H2 (+ 두 Oracle은 포트로) | D-08, D-21 |
-| 영수증 | `receipt` | `STATUS=N`이고 영수증 미완료인 주문의 영수증 CSV 생성·업로드, 완전성 확인 | FTP (+ `order`, `inbound`, `retry`) | D-09, D-10, D-12, D-26 |
-| 배송 | `shipment` | `STATUS=N`이고 배송 미완료인 주문의 배송 등록 | 운송 DB (+ `order`, `inbound`, `numbering`, `retry`) | D-03, D-10, D-12, D-26 |
-| 재시도 관리 | `retry` | 주문·단계별 횟수, 다음 시도 시각, 단계 완료, "사람이 확인" 표시와 그 해제 | H2 | D-10, D-26 |
-| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 단계별 상태 계산, 운영자 창구(조회 API + 재처리 API 하나) | H2 (+ `order`, `inbound`, `retry`) | D-13, D-21, D-26 |
+| 영수증 | `receipt` | `STATUS=N`이고 영수증 미완료인 주문의 영수증 CSV 생성·업로드, 완전성 확인 | FTP (+ `order`, `inbound`, `stage`) | D-09, D-10, D-12, D-26 |
+| 배송 | `shipment` | `STATUS=N`이고 배송 미완료인 주문의 배송 등록 | 운송 DB (+ `order`, `inbound`, `numbering`, `stage`) | D-03, D-10, D-12, D-26 |
+| 단계 진행 상태 | `stage` | 주문·단계별 횟수, 다음 시도 시각(재시도 정책), 단계 완료, "사람이 확인" 표시와 그 해제 | H2 | D-10, D-21, D-26 |
+| 스케줄러 주기 | `cycle` | 영수증·배송·마감 스케줄러가 함께 쓰는 주기 도구: 대상 고르기, 주문마다 로그의 `orderId`, 주기를 끝내는 실패와 그 로그(`CycleRunner`), 상대 시스템 연결 상태(`ConnectionWatch`) | — | D-10, D-21, D-22 |
+| 처리 이력 기록·조회 | `tracking` | 처리 이벤트 기록, 단계별 상태 계산, 운영자 창구(조회 API + 재처리 API 하나) | H2 (+ `order`, `inbound`, `stage`) | D-13, D-21, D-26 |
 | 공통 | `global` | 응답 래퍼, 오류 코드 enum, 전역 예외 처리기, `traceId`, DataSource 3개 설정 | — | D-18, D-19 |
 | 부트스트랩 (구현됨) | `bootstrap` | 과제 API에서 접속 정보 수신·복호화. 별도 진입점 `./gradlew bootstrap` | `config/` | — |
 
@@ -179,7 +180,8 @@ flowchart LR
         tracking[tracking<br/>IF-04 조회]:::app
         order[order<br/>정규 모델·STATUS N/Y]:::core
         numbering[numbering<br/>채번]:::core
-        retry[retry<br/>재시도 정책]:::core
+        stage[stage<br/>단계 진행·재시도 정책]:::core
+        cycle[cycle<br/>스케줄러 주기]:::core
     end
     subgraph OUT[나가는 쪽]
         direction TB
@@ -197,19 +199,22 @@ flowchart LR
     inbound --> numbering
     receipt --> order
     receipt --> inbound
-    receipt --> retry
+    receipt --> stage
+    receipt --> cycle
     shipment --> order
     shipment --> inbound
     shipment --> numbering
-    shipment --> retry
+    shipment --> stage
+    shipment --> cycle
     order -. 최댓값 포트 구현 .-> numbering
-    order --> retry
+    order --> stage
+    order --> cycle
     tracking --> order
     tracking --> inbound
-    tracking --> retry
+    tracking --> stage
     inbound --> H2
     numbering --> H2
-    retry --> H2
+    stage --> H2
     tracking --> H2
     order --> SHOP
     receipt --> FTP
@@ -225,6 +230,7 @@ flowchart LR
 - `receipt`와 `shipment` 사이에는 화살표가 없다. 서로를 모르고 각자 H2에 자기 단계의 완료를 적는다. 두 단계가 모두 끝났는지는 `order`의 마감 스케줄러만 본다 (D-26).
 - 영수증·배송은 수신일시와 수신 기록 유무를 `inbound`의 서비스로 읽는다. 조회 API(`tracking`)도 주문을 실어 온 메시지 ID·수신 시각과 메시지 상세·목록을 같은 서비스로 읽는다. `RECEIVED_MESSAGE`·`MESSAGE_ORDER`는 `inbound`가 맡고, `inbound`는 이들을 모른다. 처리 이벤트를 Spring 이벤트로 발행하는 것도 `inbound` → `tracking` 호출로 순환이 생기지 않게 하려는 것이다 (D-13, D-21).
 - 채번기는 시작할 때 두 Oracle의 최댓값을 포트 `IssuedIdReader`로 읽고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다(점선, `shipment`는 이미 화살표가 있어 생략). 채번기가 `shipment`를 부르면 서로 부르는 순환이 되기 때문이다 (D-21).
+- `cycle`은 세 스케줄러(영수증·배송·마감)가 함께 쓰는 주기 도구다. `global`만 의존하고 도메인을 모른다. 그래서 연결 상태가 남기는 이벤트의 구간도 `stage`의 단계가 아니라 `global`의 `EventStage`로 받는다 (D-21).
 - `global`(응답·오류·설정)과 `bootstrap`은 그림에서 뺐다.
 
 **도메인 안쪽 구조.** 영수증 예시.
@@ -424,7 +430,7 @@ erDiagram
 - 주문번호는 Oracle에 넣기 **전에** H2에 먼저 적어 둔다("미리 배정한 주문번호"). 재처리할 때 새 번호를 따지 않고 같은 번호를 다시 써서, 지난번에 실제로 저장됐는지 확인할 수 있게 하기 위해서다 (D-05, D-16).
 - `RECEIVED_MESSAGE.STATE`: `PROCESSING`(처리 중), `COMPLETED`(저장과 응답 기록까지 끝남), `FAILED`(실패, 응답 코드를 함께 기록). 같은 메시지 키의 잠금을 얻은 뒤에도 `PROCESSING`이 보이면 이전 처리가 중간에 중단된 것이다 (D-16).
 - 원본은 디코딩한 문자열이 아니라 받은 바이트로 보존한다. 인코딩 해석이 틀렸을 때도 원본으로 다시 판단할 수 있다.
-- `PROCESS_EVENT.STAGE` 값: `RECEIVE`(수신), `RECEIPT`(영수증), `SHIPMENT`(배송), `CLOSE`(마감, `STATUS` N→Y) (D-26).
+- `PROCESS_EVENT.STAGE` 값(`global`의 `EventStage`): `RECEIVE`(수신), `RECEIPT`(영수증), `SHIPMENT`(배송), `CLOSE`(마감, `STATUS` N→Y) (D-26).
 - `PROCESS_EVENT.RESULT` 값: `SUCCESS`, `FAIL`, `SKIP`(이미 처리됨), `REJECT`, `WARN`, `OPERATOR_RESET`, `CYCLE_SKIPPED`(연결 실패 시작, 상태가 바뀔 때 한 번), `CONNECTION_RECOVERED`(복구, 건너뛴 주기 수 포함), `MISSING_RECORD`(H2에 수신 기록이 없는 주문, `ORDER_ID`는 상세에) (D-22).
   - 마감 스케줄러는 `Y`를 쓸 때 `CLOSE` + `SUCCESS`를 남긴다. 주문 상세의 이벤트에 "연계 완료" 시각이 보인다. 갱신 0건(이미 `Y`)은 남기지 않는다 (D-26).
   - `STATE_MISMATCH`(조건부 갱신 0건)는 쓰지 않는다. `STATUS`를 바꾸는 곳이 마감 스케줄러 하나이고, 그 0건은 정상이다 (D-26).
@@ -458,7 +464,7 @@ DataSource가 3개라 엔티티 매니저와 트랜잭션 매니저도 3개다 (
 > [!IMPORTANT]
 > 기본 매니저(`@Primary`)를 두지 않는다. 이름 없이 쓴 `@Transactional`이 조용히 다른 DB로 가지 않고, 호출할 때 오류로 드러난다.
 
-- 엔티티·리포지토리는 각 도메인의 `adapter/out/persistence`에 있고, `global`의 DB별 설정이 그 패키지들을 `@EnableJpaRepositories`로 나열해 각 매니저에 연결한다. H2는 `inbound`, `numbering`, `retry`, `tracking`이 함께 쓴다 (D-21).
+- 엔티티·리포지토리는 각 도메인의 `adapter/out/persistence`에 있고, `global`의 DB별 설정이 그 패키지들을 `@EnableJpaRepositories`로 나열해 각 매니저에 연결한다. H2는 `inbound`, `numbering`, `stage`, `tracking`이 함께 쓴다 (D-21).
 - 수신 흐름은 짧은 트랜잭션 세 개(H2 원본 저장·채번 → Oracle INSERT → H2 완료 기록)로 나누고, 이를 묶는 수신 서비스에는 트랜잭션을 걸지 않는다. 수신 잠금은 그 바깥에 건다 (D-16).
 - **구현 주의:** `@Primary`가 없으면 Spring Boot의 JPA 자동 설정이 빠진다. 엔티티 매니저 3개를 직접 구성하고 각각에 `ddl-auto=none` 등 Hibernate 속성을 명시한다. QueryDSL `JPAQueryFactory`도 DB별로 만든다. 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않으므로 경계는 별도 빈으로 나눈다 (D-19).
 
@@ -911,7 +917,7 @@ flowchart LR
 - ②를 ③보다 먼저 한다. 100건을 먼저 자르고 거르면, 그 100건이 모두 백오프 중이거나 `FAILED`·`DONE`일 때 뒤의 정상 주문이 계속 기다린다 (D-12).
 - 재처리 API가 표시와 다음 시도 시각을 함께 지우므로, 재처리한 주문은 다음 주기에 바로 대상이 된다. 예전의 "되돌림 감지"는 필요 없다 (D-26).
 - 한 주문의 실패가 다른 주문을 막지 않는다. 단, 연결이 끊기거나 쇼핑몰 Oracle·H2가 안 되면 남은 주문은 처리하지 않고 그 주기를 끝낸다. 같은 이유로 모두 실패하기 때문이다 (D-22).
-- 주기를 끝내는 기준(대상 조회·주문 처리 중 DB 장애, 예상하지 못한 오류)과 그 로그는 세 스케줄러가 함께 쓰는 `CycleRunner` 한 곳에 둔다. 각 서비스에는 주문 하나의 처리만 남는다.
+- 주기를 끝내는 기준(대상 조회·주문 처리 중 DB 장애, 예상하지 못한 오류)과 그 로그는 세 스케줄러가 함께 쓰는 `cycle` 패키지의 `CycleRunner` 한 곳에 둔다. 각 서비스에는 주문 하나의 처리만 남는다.
 - H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 재시도 없이 바로 그 단계에 "사람이 확인" 표시를 남긴다. 수신일시를 지어내지 않고, 복구는 운영자가 한다 (D-22).
 - FTP 연결은 주기당 1회, 처리할 주문이 있을 때만 맺는다. 파일마다 접속하면 느리고 상대 서버에 부담이 된다 (D-12).
 - 영수증·배송은 처리 전에 `inbound`의 서비스로 수신 기록을 조회한다. 영수증은 여기서 수신일시를 얻는다 (D-21).

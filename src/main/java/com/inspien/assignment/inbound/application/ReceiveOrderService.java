@@ -26,8 +26,8 @@ import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.error.ApiException;
 import com.inspien.assignment.global.error.DbFailures;
 import com.inspien.assignment.global.error.ErrorCode;
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
-import com.inspien.assignment.global.event.ProcessEvent.Stage;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.inbound.application.port.OrderMessageParser;
 import com.inspien.assignment.inbound.domain.AssignedOrder;
@@ -124,7 +124,7 @@ public class ReceiveOrderService {
 			// 완료 표시는 있는데 결과가 없다면 기록이 깨진 것이다. 이어서 처리하면 조회로 확인된다
 			return resume(message);
 		}
-		this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.WARN, "같은 본문 재수신: 이전 결과를 다시 보냄");
+		this.events.publishForMessage(message.id(), EventStage.RECEIVE, Result.WARN, "같은 본문 재수신: 이전 결과를 다시 보냄");
 		return stored.get().asReplay(replayNotice());
 	}
 
@@ -293,7 +293,7 @@ public class ReceiveOrderService {
 		String causeName = (cause != null) ? cause.getClass().getSimpleName() + " " : "";
 		String eventDetail = code + ": " + causeName + detail;
 		Result result = (code == ErrorCode.XML_PARSE_ERROR) ? Result.REJECT : Result.FAIL;
-		this.events.publishForMessage(message.id(), Stage.RECEIVE, result, eventDetail);
+		this.events.publishForMessage(message.id(), EventStage.RECEIVE, result, eventDetail);
 		return new ApiException(code, detail, message.id(), cause);
 	}
 
@@ -315,7 +315,7 @@ public class ReceiveOrderService {
 	 */
 	private void publishStored(ReceivedMessage message, ReceiveResult result) {
 		for (ReceiveResult.Stored stored : result.stored()) {
-			this.events.publishForOrderInMessage(message.id(), stored.orderId(), Stage.RECEIVE, Result.SUCCESS,
+			this.events.publishForOrderInMessage(message.id(), stored.orderId(), EventStage.RECEIVE, Result.SUCCESS,
 					storedDetail(stored));
 		}
 	}
@@ -325,7 +325,7 @@ public class ReceiveOrderService {
 	 */
 	private void publishAlreadyStored(ReceivedMessage message, ReceiveResult result) {
 		for (ReceiveResult.Stored stored : result.stored()) {
-			this.events.publishForOrderInMessage(message.id(), stored.orderId(), Stage.RECEIVE, Result.SKIP,
+			this.events.publishForOrderInMessage(message.id(), stored.orderId(), EventStage.RECEIVE, Result.SKIP,
 					storedDetail(stored) + " 이미 저장됨");
 		}
 	}
@@ -342,11 +342,11 @@ public class ReceiveOrderService {
 			String field = (rejected.field() != null) ? "(" + rejected.field() + ")" : "";
 			String detail = "seq=%d %s/%s %s%s".formatted(rejected.seq(), rejected.userId(), rejected.itemId(),
 					rejected.reason(), field);
-			this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.REJECT, detail);
+			this.events.publishForMessage(message.id(), EventStage.RECEIVE, Result.REJECT, detail);
 		}
 		for (ReceiveResult.Warning warning : result.warnings()) {
 			String detail = warning.userId() + " " + warning.reason();
-			this.events.publishForMessage(message.id(), Stage.RECEIVE, Result.WARN, detail);
+			this.events.publishForMessage(message.id(), EventStage.RECEIVE, Result.WARN, detail);
 		}
 	}
 

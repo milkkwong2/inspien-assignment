@@ -24,11 +24,11 @@ import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.domain.Shipment;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
 import com.inspien.assignment.support.TestOrders;
@@ -60,7 +60,7 @@ class ShipmentFlowIntegrationTest {
 	OrderService orders;
 
 	@MockitoSpyBean
-	RetryService retry;
+	StageService stages;
 
 	@Autowired
 	NumberingService numbering;
@@ -89,7 +89,7 @@ class ShipmentFlowIntegrationTest {
 		this.shipments.runCycle();
 
 		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.DONE);
-		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("영수증은 아직 시작도 안 했다").isEmpty();
+		assertThat(this.stages.find(ids.get(0), Stage.RECEIPT)).as("영수증은 아직 시작도 안 했다").isEmpty();
 		assertThat(this.testOrders.statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 		JdbcTemplate jdbc = new JdbcTemplate(this.shipmentDataSource);
 		assertThat(jdbc.queryForList("SELECT ORDER_ID FROM SHIPMENT_TB WHERE APPLICANT_KEY = ?", String.class,
@@ -121,7 +121,7 @@ class ShipmentFlowIntegrationTest {
 		List<String> ids = received("C");
 		String orderId = ids.get(0);
 		// 앞 시도: 미리 배정한 번호로 INSERT가 늦게 커밋돼, 다음 시도의 조회에는 보이지 않았다
-		String shipmentId = this.retry.artifactOrAssign(orderId, Stage.SHIPMENT,
+		String shipmentId = this.stages.artifactOrAssign(orderId, Stage.SHIPMENT,
 				() -> this.numbering.next(IdSequence.SHIPMENT));
 		Order order = this.orders.findById(orderId).orElseThrow();
 		this.registry.insert(Shipment.of(shipmentId, order));
@@ -137,13 +137,13 @@ class ShipmentFlowIntegrationTest {
 	void differentShipmentUnderPreassignedIdFailsWithoutRetry() {
 		List<String> ids = received("D");
 		String orderId = ids.get(0);
-		String shipmentId = this.retry.artifactOrAssign(orderId, Stage.SHIPMENT,
+		String shipmentId = this.stages.artifactOrAssign(orderId, Stage.SHIPMENT,
 				() -> this.numbering.next(IdSequence.SHIPMENT));
 		this.registry.insert(new Shipment(shipmentId, "X999", "OTHER", "다른 주소"));
 
 		this.shipments.runCycle();
 
-		StageState stage = this.retry.find(orderId, Stage.SHIPMENT).orElseThrow();
+		StageState stage = this.stages.find(orderId, Stage.SHIPMENT).orElseThrow();
 		assertThat(stage.status()).isEqualTo(StageStatus.FAILED);
 		assertThat(stage.attempts()).as("재시도 없이").isZero();
 		assertThat(stage.artifact()).as("미리 배정한 번호는 그대로").isEqualTo(shipmentId);
@@ -158,7 +158,7 @@ class ShipmentFlowIntegrationTest {
 		this.shipments.runCycle();
 
 		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.PENDING);
-		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isZero();
+		assertThat(this.stages.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isZero();
 		assertThat(count(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 	}
 
@@ -169,8 +169,8 @@ class ShipmentFlowIntegrationTest {
 
 		this.shipments.runCycle();
 
-		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isEqualTo(1);
-		assertThat(this.retry.find(ids.get(1), Stage.SHIPMENT).orElseThrow().attempts()).as("다른 주문은 계속 시도")
+		assertThat(this.stages.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).isEqualTo(1);
+		assertThat(this.stages.find(ids.get(1), Stage.SHIPMENT).orElseThrow().attempts()).as("다른 주문은 계속 시도")
 			.isEqualTo(1);
 		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.PENDING);
 	}
@@ -191,20 +191,20 @@ class ShipmentFlowIntegrationTest {
 
 	private void completionRecordFailureEndsCycle(String mark, RuntimeException h2Failure) {
 		List<String> ids = received(mark);
-		doThrow(h2Failure).when(this.retry).recordCompletion(eq(ids.get(0)), eq(Stage.SHIPMENT), anyString());
+		doThrow(h2Failure).when(this.stages).recordCompletion(eq(ids.get(0)), eq(Stage.SHIPMENT), anyString());
 		long failsBefore = count(ProcessEvent.Result.FAIL);
 		long skipsBefore = count(ProcessEvent.Result.CYCLE_SKIPPED);
 
 		this.shipments.runCycle();
 
 		assertThat(shipmentCount(ids.get(0))).as("INSERT는 커밋됐다").isEqualTo(1);
-		assertThat(this.retry.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).as("건별 실패로 세지 않는다")
+		assertThat(this.stages.find(ids.get(0), Stage.SHIPMENT).orElseThrow().attempts()).as("건별 실패로 세지 않는다")
 			.isZero();
 		assertThat(count(ProcessEvent.Result.FAIL)).isEqualTo(failsBefore);
 		assertThat(count(ProcessEvent.Result.CYCLE_SKIPPED)).as("운송 DB 장애가 아니다").isEqualTo(skipsBefore);
 		assertThat(shipmentCount(ids.get(1))).as("주기를 끝내 다음 주문은 처리하지 않는다").isZero();
 
-		doCallRealMethod().when(this.retry).recordCompletion(anyString(), any(), any());
+		doCallRealMethod().when(this.stages).recordCompletion(anyString(), any(), any());
 		this.shipments.runCycle();
 
 		assertThat(this.testOrders.stageStatuses(ids, Stage.SHIPMENT)).containsOnly(StageStatus.DONE);

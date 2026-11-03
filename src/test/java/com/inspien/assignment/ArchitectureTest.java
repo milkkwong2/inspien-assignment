@@ -47,7 +47,7 @@ class ArchitectureTest {
 	static final String ROOT = "com.inspien.assignment";
 
 	static final List<String> DOMAINS = List.of("order", "inbound", "receipt", "shipment", "tracking", "numbering",
-			"retry");
+			"stage", "cycle");
 
 	/**
 	 * 도메인이 아닌 최상위 패키지. global은 공통 계약, bootstrap은 별도 진입점의 일회성 도구다.
@@ -60,18 +60,20 @@ class ArchitectureTest {
 	 *
 	 * <ul>
 	 * <li>receipt와 shipment는 서로 모른다. 각자 자기 단계만 적고, 둘을 합쳐 보는 것은 order의 마감이다.</li>
-	 * <li>retry와 numbering은 다른 도메인을 모른다. 여럿이 함께 쓰는 핵심이다.</li>
+	 * <li>stage, numbering, cycle은 다른 도메인을 모른다. 여럿이 함께 쓰는 핵심이다. cycle은 스케줄러 주기 도구라 global만
+	 * 쓴다.</li>
 	 * <li>order → numbering, shipment → numbering의 일부는 채번기 포트 IssuedIdReader 구현이다. 반대로 부르면 순환이다.</li>
 	 * </ul>
 	 */
 	static final Map<String, Set<String>> ALLOWED = Map.of(
 			"numbering", Set.of(),
-			"retry", Set.of(),
-			"order", Set.of("numbering", "retry"),
+			"stage", Set.of(),
+			"cycle", Set.of(),
+			"order", Set.of("numbering", "stage", "cycle"),
 			"inbound", Set.of("order", "numbering"),
-			"receipt", Set.of("order", "inbound", "retry"),
-			"shipment", Set.of("order", "inbound", "numbering", "retry"),
-			"tracking", Set.of("order", "inbound", "retry"));
+			"receipt", Set.of("order", "inbound", "stage", "cycle"),
+			"shipment", Set.of("order", "inbound", "numbering", "stage", "cycle"),
+			"tracking", Set.of("order", "inbound", "stage"));
 
 	/**
 	 * 손으로 적은 도메인 목록이 실제 패키지와 같은지 본다. 새 도메인 패키지를 만들고 목록에 넣지 않으면 아래 규칙들이 그

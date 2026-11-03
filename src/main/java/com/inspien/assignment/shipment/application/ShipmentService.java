@@ -6,9 +6,12 @@ import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import com.inspien.assignment.cycle.application.ConnectionWatch;
+import com.inspien.assignment.cycle.application.CycleRunner;
+import com.inspien.assignment.cycle.application.NextStep;
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.error.DbFailures;
-import com.inspien.assignment.global.event.ProcessEvent;
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.inbound.application.InboundQueryService;
@@ -17,14 +20,11 @@ import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.retry.application.ConnectionWatch;
-import com.inspien.assignment.retry.application.CycleRunner;
-import com.inspien.assignment.retry.application.NextStep;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.application.StageEvents;
-import com.inspien.assignment.retry.application.StageFailures;
-import com.inspien.assignment.retry.domain.Stage;
 import com.inspien.assignment.shipment.domain.Shipment;
+import com.inspien.assignment.stage.application.StageEvents;
+import com.inspien.assignment.stage.application.StageFailures;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
 
 /**
  * IF-03 배송 (설계서 §5.3, §7.2). STATUS=N이고 배송 단계가 PENDING인 주문을 운송회사 DB에 등록하고 H2에 배송 완료를
@@ -49,7 +49,7 @@ public class ShipmentService {
 
 	private final InboundQueryService inbound;
 
-	private final RetryService retry;
+	private final StageService stages;
 
 	private final NumberingService numbering;
 
@@ -67,12 +67,12 @@ public class ShipmentService {
 
 	private final ConnectionWatch shipmentDb;
 
-	ShipmentService(OrderService orders, InboundQueryService inbound, RetryService retry, NumberingService numbering,
+	ShipmentService(OrderService orders, InboundQueryService inbound, StageService stages, NumberingService numbering,
 			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, StageFailures failures,
 			CycleRunner cycles, AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
-		this.retry = retry;
+		this.stages = stages;
 		this.numbering = numbering;
 		this.registry = registry;
 		this.events = events;
@@ -80,7 +80,7 @@ public class ShipmentService {
 		this.failures = failures;
 		this.cycles = cycles;
 		this.batchSize = properties.scheduler().batchSize();
-		this.shipmentDb = new ConnectionWatch("운송회사 DB", STAGE, events);
+		this.shipmentDb = new ConnectionWatch("운송회사 DB", EventStage.SHIPMENT, events);
 	}
 
 	public void runCycle() {
@@ -90,7 +90,7 @@ public class ShipmentService {
 
 	private List<String> selectDue() {
 		List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
-		return this.retry.selectDue(STAGE, candidates, this.batchSize);
+		return this.stages.selectDue(STAGE, candidates, this.batchSize);
 	}
 
 	/**
@@ -108,7 +108,7 @@ public class ShipmentService {
 			this.failures.missingRecord(orderId, STAGE);
 			return NextStep.NEXT_ORDER;
 		}
-		String shipmentId = this.retry.artifactOrAssign(orderId, STAGE, () -> this.numbering.next(IdSequence.SHIPMENT));
+		String shipmentId = this.stages.artifactOrAssign(orderId, STAGE, () -> this.numbering.next(IdSequence.SHIPMENT));
 		return register(Shipment.of(shipmentId, found.get()));
 	}
 
@@ -180,7 +180,7 @@ public class ShipmentService {
 			return NextStep.NEXT_ORDER;
 		}
 		String error = "SHIPMENT_ID " + shipment.shipmentId() + "에 다른 배송이 있음: " + rootMessage(conflict);
-		this.retry.markFailed(orderId, STAGE, error);
+		this.stages.markFailed(orderId, STAGE, error);
 		this.stageEvents.failedWithoutRetry(orderId, STAGE, error);
 		return NextStep.NEXT_ORDER;
 	}
@@ -189,16 +189,16 @@ public class ShipmentService {
 	 * 이번에 INSERT했다.
 	 */
 	private void registered(String orderId, String shipmentId) {
-		this.retry.recordCompletion(orderId, STAGE, shipmentId);
-		this.events.publishForOrder(orderId, ProcessEvent.Stage.SHIPMENT, Result.SUCCESS, "배송 " + shipmentId + " 등록");
+		this.stages.recordCompletion(orderId, STAGE, shipmentId);
+		this.events.publishForOrder(orderId, EventStage.SHIPMENT, Result.SUCCESS, "배송 " + shipmentId + " 등록");
 	}
 
 	/**
 	 * 배송은 이미 있었다(앞 시도가 INSERT했다). 완료만 적는다.
 	 */
 	private void alreadyRegistered(String orderId, String shipmentId) {
-		this.retry.recordCompletion(orderId, STAGE, shipmentId);
-		this.events.publishForOrder(orderId, ProcessEvent.Stage.SHIPMENT, Result.SKIP, "배송 " + shipmentId + " 이미 있음");
+		this.stages.recordCompletion(orderId, STAGE, shipmentId);
+		this.events.publishForOrder(orderId, EventStage.SHIPMENT, Result.SKIP, "배송 " + shipmentId + " 이미 있음");
 	}
 
 	private static String rootMessage(Throwable ex) {

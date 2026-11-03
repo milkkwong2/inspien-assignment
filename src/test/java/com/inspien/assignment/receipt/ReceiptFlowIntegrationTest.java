@@ -21,10 +21,10 @@ import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.receipt.application.ReceiptService;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.support.FakeFtp;
 import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
@@ -61,7 +61,7 @@ class ReceiptFlowIntegrationTest {
 	AppProperties properties;
 
 	@Autowired
-	RetryService retry;
+	StageService stages;
 
 	@Autowired
 	@Qualifier("historyDataSource")
@@ -84,7 +84,7 @@ class ReceiptFlowIntegrationTest {
 		assertThat(csv).startsWith("﻿ORDER_ID,USER_ID,NAME,ITEM_ID,ITEM_NAME,PRICE,RECEIVED_AT\r\n")
 			.contains(ids.get(1) + ",USER01,김민수A,ITEM10,\"노트북 거치대, 블랙\",32000,2026-10-31 14:05:12\r\n");
 		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
-		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().completedAt())
+		assertThat(this.stages.find(ids.get(0), Stage.RECEIPT).orElseThrow().completedAt())
 			.isEqualTo(IntegrationFakes.START);
 		assertThat(this.testOrders.statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 	}
@@ -99,7 +99,7 @@ class ReceiptFlowIntegrationTest {
 		this.receipts.runCycle();
 
 		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.PENDING);
-		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
+		assertThat(this.stages.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
 		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 
 		this.ftp.down = false;
@@ -117,8 +117,8 @@ class ReceiptFlowIntegrationTest {
 		this.receipts.runCycle();
 
 		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.PENDING);
-		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
-		assertThat(this.retry.find(ids.get(1), Stage.RECEIPT)).isEmpty();
+		assertThat(this.stages.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
+		assertThat(this.stages.find(ids.get(1), Stage.RECEIPT)).isEmpty();
 		assertThat(results(ProcessEvent.Result.FAIL)).isZero();
 		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 
@@ -148,7 +148,7 @@ class ReceiptFlowIntegrationTest {
 			this.receipts.runCycle();
 		}
 		assertThat(failures(ids.get(0))).isEqualTo(5);
-		StageState failed = this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow();
+		StageState failed = this.stages.find(ids.get(0), Stage.RECEIPT).orElseThrow();
 		assertThat(failed.status()).isEqualTo(StageStatus.FAILED);
 		assertThat(failed.attempts()).isEqualTo(5);
 		assertThat(failed.nextAttemptAt()).as("표시와 함께 다음 시도를 지운다").isNull();
@@ -171,7 +171,7 @@ class ReceiptFlowIntegrationTest {
 		assertThat(this.ftp.uploads).contains("영수증_" + name + "_" + ids.get(0) + "_r1.csv")
 			.doesNotContain("영수증_" + name + "_" + ids.get(0) + ".csv");
 		assertThat(this.testOrders.stageStatuses(ids, Stage.RECEIPT)).containsOnly(StageStatus.DONE);
-		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT).orElseThrow().artifact())
+		assertThat(this.stages.find(ids.get(0), Stage.RECEIPT).orElseThrow().artifact())
 			.isEqualTo("영수증_" + name + "_" + ids.get(0) + "_r1.csv");
 	}
 
@@ -198,7 +198,7 @@ class ReceiptFlowIntegrationTest {
 
 		this.receipts.runCycle();
 
-		StageState stage = this.retry.find("Z900", Stage.RECEIPT).orElseThrow();
+		StageState stage = this.stages.find("Z900", Stage.RECEIPT).orElseThrow();
 		assertThat(stage.status()).isEqualTo(StageStatus.FAILED);
 		assertThat(stage.attempts()).isZero();
 		assertThat(stage.lastError()).isEqualTo("H2에 수신 기록 없음");

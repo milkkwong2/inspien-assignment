@@ -11,8 +11,11 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.inspien.assignment.cycle.application.ConnectionWatch;
+import com.inspien.assignment.cycle.application.CycleRunner;
+import com.inspien.assignment.cycle.application.NextStep;
 import com.inspien.assignment.global.config.AppProperties;
-import com.inspien.assignment.global.event.ProcessEvent;
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.inbound.application.InboundQueryService;
@@ -22,12 +25,9 @@ import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 import com.inspien.assignment.receipt.domain.Receipt;
 import com.inspien.assignment.receipt.domain.UploadPlan;
-import com.inspien.assignment.retry.application.ConnectionWatch;
-import com.inspien.assignment.retry.application.CycleRunner;
-import com.inspien.assignment.retry.application.NextStep;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.application.StageFailures;
-import com.inspien.assignment.retry.domain.Stage;
+import com.inspien.assignment.stage.application.StageFailures;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
 
 /**
  * IF-02 영수증 (설계서 §7.2). STATUS=N이고 영수증 단계가 PENDING인 주문마다 영수증 CSV를 FTP에 올리고 H2에 영수증 완료를
@@ -51,7 +51,7 @@ public class ReceiptService {
 
 	private final InboundQueryService inbound;
 
-	private final RetryService retry;
+	private final StageService stages;
 
 	private final ReceiptUploader uploader;
 
@@ -73,12 +73,12 @@ public class ReceiptService {
 
 	private final ConnectionWatch ftp;
 
-	public ReceiptService(OrderService orders, InboundQueryService inbound, RetryService retry,
+	public ReceiptService(OrderService orders, InboundQueryService inbound, StageService stages,
 			ReceiptUploader uploader, ProcessEvents events, StageFailures failures, CycleRunner cycles, Clock clock,
 			AppProperties properties) {
 		this.orders = orders;
 		this.inbound = inbound;
-		this.retry = retry;
+		this.stages = stages;
 		this.uploader = uploader;
 		this.events = events;
 		this.failures = failures;
@@ -88,7 +88,7 @@ public class ReceiptService {
 		this.contentCharset = Charset.forName(properties.receipt().contentCharset());
 		this.bom = properties.receipt().bom();
 		this.batchSize = properties.scheduler().batchSize();
-		this.ftp = new ConnectionWatch("FTP", STAGE, events);
+		this.ftp = new ConnectionWatch("FTP", EventStage.RECEIPT, events);
 	}
 
 	/**
@@ -114,7 +114,7 @@ public class ReceiptService {
 
 	private List<String> selectDue() {
 		List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
-		return this.retry.selectDue(STAGE, candidates, this.batchSize);
+		return this.stages.selectDue(STAGE, candidates, this.batchSize);
 	}
 
 	/**
@@ -173,13 +173,13 @@ public class ReceiptService {
 	}
 
 	private void uploaded(String orderId, String fileName) {
-		this.retry.recordCompletion(orderId, STAGE, fileName);
-		this.events.publishForOrder(orderId, ProcessEvent.Stage.RECEIPT, Result.SUCCESS, fileName + " 업로드");
+		this.stages.recordCompletion(orderId, STAGE, fileName);
+		this.events.publishForOrder(orderId, EventStage.RECEIPT, Result.SUCCESS, fileName + " 업로드");
 	}
 
 	private void replacedPartial(String orderId, String fileName) {
-		this.retry.recordCompletion(orderId, STAGE, fileName);
-		this.events.publishForOrder(orderId, ProcessEvent.Stage.RECEIPT, Result.SUCCESS,
+		this.stages.recordCompletion(orderId, STAGE, fileName);
+		this.events.publishForOrder(orderId, EventStage.RECEIPT, Result.SUCCESS,
 				fileName + " 업로드 (반쪽 파일 대신)");
 	}
 
@@ -187,8 +187,8 @@ public class ReceiptService {
 	 * 업로드 뒤 완료 기록 전에 중단됐던 경우. 올리지 않고 완료만 적는다 (D-03).
 	 */
 	private void alreadyUploaded(String orderId, String fileName) {
-		this.retry.recordCompletion(orderId, STAGE, fileName);
-		this.events.publishForOrder(orderId, ProcessEvent.Stage.RECEIPT, Result.SKIP, fileName + " 이미 있음");
+		this.stages.recordCompletion(orderId, STAGE, fileName);
+		this.events.publishForOrder(orderId, EventStage.RECEIPT, Result.SKIP, fileName + " 이미 있음");
 	}
 
 }

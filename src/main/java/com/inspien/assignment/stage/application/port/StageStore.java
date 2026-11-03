@@ -1,11 +1,11 @@
-package com.inspien.assignment.retry.application.port;
+package com.inspien.assignment.stage.application.port;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
 
 /**
  * H2 ORDER_STAGE.

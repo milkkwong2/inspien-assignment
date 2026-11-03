@@ -9,15 +9,16 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.order.application.CloseService;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 import com.inspien.assignment.receipt.application.ReceiptService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.application.ShipmentService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.support.FakeFtp;
 import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
@@ -117,7 +118,7 @@ class CloseFlowIntegrationTest {
 
 	private long closeEvents(String orderId) {
 		return this.events.stream(ProcessEvent.class)
-			.filter(event -> orderId.equals(event.orderId()) && event.stage() == ProcessEvent.Stage.CLOSE
+			.filter(event -> orderId.equals(event.orderId()) && event.stage() == EventStage.CLOSE
 					&& event.result() == ProcessEvent.Result.SUCCESS)
 			.count();
 	}

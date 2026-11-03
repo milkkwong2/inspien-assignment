@@ -11,11 +11,11 @@ import java.time.Instant;
  * @param occurredAt 일어난 시각
  * @param messageId 수신 메시지 ID (주기 이벤트는 없음)
  * @param orderId 주문번호 (거부·주기 이벤트는 없음)
- * @param stage 단계
+ * @param stage 구간
  * @param result 결과
  * @param detail 사람이 읽는 상세
  */
-public record ProcessEvent(Instant occurredAt, String messageId, String orderId, Stage stage, Result result,
+public record ProcessEvent(Instant occurredAt, String messageId, String orderId, EventStage stage, Result result,
 		String detail) {
 
 	/**
@@ -25,15 +25,6 @@ public record ProcessEvent(Instant occurredAt, String messageId, String orderId,
 	public String logSummary() {
 		return "stage=" + this.stage + ", result=" + this.result + ", messageId=" + this.messageId + ", orderId="
 				+ this.orderId + ", occurredAt=" + this.occurredAt;
-	}
-
-	/**
-	 * CLOSE는 마감(STATUS N→Y)이다 (D-26).
-	 */
-	public enum Stage {
-
-		RECEIVE, RECEIPT, SHIPMENT, CLOSE
-
 	}
 
 	/**

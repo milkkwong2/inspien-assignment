@@ -10,10 +10,10 @@ import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 
 /**
  * 통합 테스트의 주문 준비와 상태 읽기. 필요한 테스트 클래스가 {@code @Import}한다.
@@ -30,12 +30,12 @@ public class TestOrders {
 
 	private final OrderService orders;
 
-	private final RetryService retry;
+	private final StageService stages;
 
-	TestOrders(ReceiveOrderService receive, OrderService orders, RetryService retry) {
+	TestOrders(ReceiveOrderService receive, OrderService orders, StageService stages) {
 		this.receive = receive;
 		this.orders = orders;
-		this.retry = retry;
+		this.stages = stages;
 	}
 
 	/**
@@ -59,7 +59,7 @@ public class TestOrders {
 	 * H2의 단계 상태. 아직 기록이 없으면 PENDING이다.
 	 */
 	public StageStatus stageStatus(String orderId, Stage stage) {
-		StageState state = this.retry.find(orderId, stage).orElse(null);
+		StageState state = this.stages.find(orderId, stage).orElse(null);
 		return StageState.statusOf(state);
 	}
 

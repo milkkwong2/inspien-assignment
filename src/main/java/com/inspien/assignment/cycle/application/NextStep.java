@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.application;
+package com.inspien.assignment.cycle.application;
 
 /**
  * 영수증·배송 주기에서 주문 하나를 처리한 뒤 할 일 (D-22).

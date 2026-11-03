@@ -1,4 +1,4 @@
-package com.inspien.assignment.retry.adapter.out.persistence;
+package com.inspien.assignment.stage.adapter.out.persistence;
 
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -12,9 +12,9 @@ import jakarta.persistence.PersistenceContext;
 
 import org.springframework.stereotype.Repository;
 
-import com.inspien.assignment.retry.application.port.StageStore;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
+import com.inspien.assignment.stage.application.port.StageStore;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
 
 /**
  * H2 ORDER_STAGE 어댑터.

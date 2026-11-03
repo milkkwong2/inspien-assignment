@@ -4,12 +4,13 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.inspien.assignment.cycle.application.CycleRunner;
 import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.retry.application.CycleRunner;
-import com.inspien.assignment.retry.application.RetryService;
+import com.inspien.assignment.stage.application.StageService;
 
 /**
  * 마감 (설계서 §7.2, D-26). STATUS=N이고 영수증·배송이 모두 DONE인 주문을 조건부로 N→Y로 바꾼다.
@@ -28,7 +29,7 @@ public class CloseService {
 
 	private final OrderService orders;
 
-	private final RetryService stages;
+	private final StageService stages;
 
 	private final ProcessEvents events;
 
@@ -36,7 +37,7 @@ public class CloseService {
 
 	private final int batchSize;
 
-	public CloseService(OrderService orders, RetryService stages, ProcessEvents events, CycleRunner cycles,
+	public CloseService(OrderService orders, StageService stages, ProcessEvents events, CycleRunner cycles,
 			AppProperties properties) {
 		this.orders = orders;
 		this.stages = stages;
@@ -56,7 +57,7 @@ public class CloseService {
 
 	private void close(String orderId) {
 		if (this.orders.close(orderId)) {
-			this.events.publishForOrder(orderId, ProcessEvent.Stage.CLOSE, ProcessEvent.Result.SUCCESS,
+			this.events.publishForOrder(orderId, EventStage.CLOSE, ProcessEvent.Result.SUCCESS,
 					"영수증·배송 모두 완료, STATUS N→Y");
 		}
 	}

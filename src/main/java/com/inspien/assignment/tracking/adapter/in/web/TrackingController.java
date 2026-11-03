@@ -16,7 +16,7 @@ import com.inspien.assignment.global.error.ApiException;
 import com.inspien.assignment.global.error.ErrorCode;
 import com.inspien.assignment.global.web.ApiResponse;
 import com.inspien.assignment.inbound.domain.MessageState;
-import com.inspien.assignment.retry.domain.StageStatus;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.tracking.application.TrackingQueryService;
 import com.inspien.assignment.tracking.application.TrackingViews;
 

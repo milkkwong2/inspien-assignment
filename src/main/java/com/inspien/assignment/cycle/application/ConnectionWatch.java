@@ -1,11 +1,11 @@
-package com.inspien.assignment.retry.application;
+package com.inspien.assignment.cycle.application;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.event.ProcessEvents;
-import com.inspien.assignment.retry.domain.Stage;
 
 /**
  * 상대 시스템(FTP, 운송 DB) 연결 상태. 연결 실패는 주문의 문제가 아니라 그 주기를 건너뛰고 횟수를 세지 않는다 (D-10).
@@ -19,7 +19,7 @@ public class ConnectionWatch {
 
 	private final String target;
 
-	private final Stage stage;
+	private final EventStage stage;
 
 	private final ProcessEvents events;
 
@@ -27,7 +27,7 @@ public class ConnectionWatch {
 
 	private int skippedCycles;
 
-	public ConnectionWatch(String target, Stage stage, ProcessEvents events) {
+	public ConnectionWatch(String target, EventStage stage, ProcessEvents events) {
 		this.target = target;
 		this.stage = stage;
 		this.events = events;
@@ -36,7 +36,7 @@ public class ConnectionWatch {
 	public void failed(Exception cause) {
 		log.error("{} 연결 실패: 이번 주기를 건너뜁니다 ({}회째)", this.target, this.skippedCycles + 1, cause);
 		if (!this.down) {
-			this.events.publishForCycle(StageEvents.of(this.stage), ProcessEvent.Result.CYCLE_SKIPPED,
+			this.events.publishForCycle(this.stage, ProcessEvent.Result.CYCLE_SKIPPED,
 					this.target + " 연결 실패, 복구될 때까지 주기를 건너뜀: " + cause.getMessage());
 		}
 		this.down = true;
@@ -45,8 +45,7 @@ public class ConnectionWatch {
 
 	public void connected() {
 		if (this.down) {
-			this.events.publishForCycle(StageEvents.of(this.stage),
-					ProcessEvent.Result.CONNECTION_RECOVERED,
+			this.events.publishForCycle(this.stage, ProcessEvent.Result.CONNECTION_RECOVERED,
 					this.target + " 연결 복구 (건너뛴 주기 " + this.skippedCycles + "회)");
 			log.info("{} 연결 복구 (건너뛴 주기 {}회)", this.target, this.skippedCycles);
 		}

@@ -22,11 +22,11 @@ import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.receipt.application.ReceiptService;
-import com.inspien.assignment.retry.application.RetryService;
-import com.inspien.assignment.retry.domain.Stage;
-import com.inspien.assignment.retry.domain.StageState;
-import com.inspien.assignment.retry.domain.StageStatus;
 import com.inspien.assignment.shipment.application.ShipmentService;
+import com.inspien.assignment.stage.application.StageService;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
+import com.inspien.assignment.stage.domain.StageStatus;
 import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
 
@@ -60,7 +60,7 @@ class OperationsIntegrationTest {
 	OrderService orders;
 
 	@Autowired
-	RetryService retry;
+	StageService stages;
 
 	@Autowired
 	@Qualifier("historyDataSource")
@@ -73,7 +73,7 @@ class OperationsIntegrationTest {
 	void restartsFailedStageFromZeroAndSchedulerPicksItUp() throws Exception {
 		String orderId = receive("A");
 		for (int i = 0; i < 5; i++) {
-			this.retry.recordFailure(orderId, Stage.RECEIPT, "업로드 권한 오류");
+			this.stages.recordFailure(orderId, Stage.RECEIPT, "업로드 권한 오류");
 		}
 		assertThat(stage(orderId, Stage.RECEIPT).status()).isEqualTo(StageStatus.FAILED);
 
@@ -99,7 +99,7 @@ class OperationsIntegrationTest {
 	void restartsEveryFailedStageAndKeepsPreassignedShipmentId() throws Exception {
 		// 수신 기록이 없는 주문: 두 단계 모두 재시도 없이 FAILED
 		this.orders.insertAll(List.of(Order.received("Z930", "U", "I", "N", "A", "IN", "1")));
-		String shipmentId = this.retry.artifactOrAssign("Z930", Stage.SHIPMENT, () -> "Z930");
+		String shipmentId = this.stages.artifactOrAssign("Z930", Stage.SHIPMENT, () -> "Z930");
 		this.receipts.runCycle();
 		this.shipments.runCycle();
 		OffsetDateTime before = updatedAt("Z930", Stage.SHIPMENT);
@@ -140,7 +140,7 @@ class OperationsIntegrationTest {
 	}
 
 	private StageState stage(String orderId, Stage stage) {
-		return this.retry.find(orderId, stage).orElseThrow();
+		return this.stages.find(orderId, stage).orElseThrow();
 	}
 
 	private OffsetDateTime updatedAt(String orderId, Stage stage) {

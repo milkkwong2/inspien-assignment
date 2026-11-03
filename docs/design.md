@@ -582,6 +582,7 @@ Content-Type: application/xml; charset=EUC-KR
 | `BUSY` (수신 잠금 대기 초과) | `503` | true |
 
 - 이 표는 코드에서 오류 코드 enum 하나(상태, `retryable`)로 옮겨진다. Problem Details와 `Retry-After`는 전역 예외 처리기 한 곳에서 만든다.
+- Spring이 만든 오류(`405`·`415`·`400` 등)도 같은 형식(`code`·`retryable`·`traceId`)으로 응답하고 같은 규칙으로 로그를 남긴다(5xx는 ERROR와 스택, 4xx는 WARN 한 줄). 상태는 Spring이 정한 대로 두고, `code`는 `404`면 `NOT_FOUND`, 그 밖의 4xx는 `INVALID_REQUEST`, 5xx는 `INTERNAL_ERROR`다(모두 `retryable: false`).
 - Oracle 오류의 `503`·`500` 구분은 연결·자원 계열 여부로 한다. 스케줄러의 연결 실패 판정(§8)과 같은 기준이다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어쓰므로 예외 타입 하나가 아니라 원인 사슬 전체를 본다(`DbFailures`). 나머지는 `ORDER_DB_REJECTED`로 둔다. PK 충돌은 이보다 먼저 "다시 조회해 비교"로 처리한다 (D-17, D-19, D-25).
 - 이 구분은 DB 예외(Spring `DataAccessException`·`TransactionException`)에만 한다. `NullPointerException` 같은 그 밖의 오류는 코드 결함일 수 있어 `ORDER_DB_REJECTED`로 적지 않고 `INTERNAL_ERROR`로 H2에 `FAILED`를 남긴다 (D-17 2026-11-04 보완).
 - 송신자가 `500`도 재전송해도 같은 `500`이 나갈 뿐 데이터는 바뀌지 않는다. 계약은 안내이고, 안전은 서버의 멱등성(D-15, D-16)이 지킨다.

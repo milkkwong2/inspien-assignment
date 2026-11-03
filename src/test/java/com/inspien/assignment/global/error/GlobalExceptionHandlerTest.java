@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.inspien.assignment.global.web.ApiResponse;
@@ -75,6 +76,19 @@ class GlobalExceptionHandlerTest {
 	void springMvcErrorsAlsoCarryTraceId() throws Exception {
 		this.mvc.perform(post("/test/ok"))
 			.andExpect(status().isMethodNotAllowed())
+			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+			.andExpect(jsonPath("$.retryable").value(false))
+			.andExpect(jsonPath("$.traceId").isString());
+	}
+
+	@Test
+	void missingRequestParameterFollowsTheSameContract() throws Exception {
+		this.mvc.perform(get("/test/param"))
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(header().doesNotExist("Retry-After"))
+			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+			.andExpect(jsonPath("$.retryable").value(false))
 			.andExpect(jsonPath("$.traceId").isString());
 	}
 
@@ -100,6 +114,11 @@ class GlobalExceptionHandlerTest {
 		@GetMapping("/test/boom")
 		void boom() {
 			throw new IllegalStateException("internal detail jdbc:oracle:thin:@secret-host");
+		}
+
+		@GetMapping("/test/param")
+		ApiResponse<Value> param(@RequestParam String name) {
+			return ApiResponse.of(new Value(name));
 		}
 
 		record Value(String value) {

@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import com.inspien.assignment.inbound.application.MessageListItem;
 import com.inspien.assignment.inbound.application.MessageSummary;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.inbound.domain.AssignedOrder;
@@ -45,7 +46,7 @@ public interface MessageStore {
 	Optional<MessageSummary> findSummary(String messageId);
 
 	/**
-	 * 메시지 목록, 메시지 ID(시간순) 오름차순.
+	 * 메시지 목록, 메시지 ID(시간순) 오름차순. 목록에 보여 줄 칸만 읽는다. 받은 원문과 수신 결과는 읽지 않는다.
 	 *
 	 * @param state 상태 (null이면 전부)
 	 * @param from 수신 시각 하한, 포함 (null이면 없음)
@@ -53,6 +54,6 @@ public interface MessageStore {
 	 * @param after 이 메시지 ID 다음부터 (null이면 처음부터)
 	 * @param limit 최대 건수
 	 */
-	List<MessageSummary> findSummaries(MessageState state, Instant from, Instant to, String after, int limit);
+	List<MessageListItem> findListItems(MessageState state, Instant from, Instant to, String after, int limit);
 
 }

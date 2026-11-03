@@ -2,10 +2,8 @@ package com.inspien.assignment.inbound.adapter.out.persistence;
 
 import java.time.Instant;
 
-import jakarta.persistence.Basic;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
@@ -32,8 +30,11 @@ class ReceivedMessageEntity extends BaseTimeEntity {
 	@Column(name = "CONTENT_TYPE")
 	private String contentType;
 
+	/**
+	 * 받은 원문(최대 1MB). 엔티티를 읽으면 함께 읽힌다. 지연 로딩은 바이트코드 향상이 있어야 하는데 켜지 않았다. 그래서 메시지
+	 * 목록은 필요한 칸만 프로젝션으로 읽어 이 칸을 피한다.
+	 */
 	@Lob
-	@Basic(fetch = FetchType.LAZY)
 	@Column(name = "RAW_BODY")
 	private byte[] rawBody;
 

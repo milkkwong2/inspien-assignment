@@ -58,8 +58,8 @@ public class InboundQueryService {
 	}
 
 	@HistoryTx(readOnly = true)
-	public List<MessageSummary> messages(MessageState state, Instant from, Instant to, String after, int limit) {
-		return this.store.findSummaries(state, from, to, after, limit);
+	public List<MessageListItem> messages(MessageState state, Instant from, Instant to, String after, int limit) {
+		return this.store.findListItems(state, from, to, after, limit);
 	}
 
 }

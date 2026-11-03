@@ -4,6 +4,7 @@ import java.nio.charset.Charset;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ import com.inspien.assignment.support.IntegrationTest;
 import com.inspien.assignment.support.MutableClock;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -107,6 +109,9 @@ class TrackingIntegrationTest {
 		this.mvc.perform(get("/tracking/messages").param("state", "FAILED"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data[*].messageId", hasItems(messageId)))
+			.andExpect(jsonPath("$.data[?(@.messageId == '%s')].errorCode", messageId)
+				.value(contains("XML_PARSE_ERROR")))
+			.andExpect(jsonPath("$.data[?(@.messageId == '%s')].responseStatus", messageId).value(contains(400)))
 			.andExpect(jsonPath("$.page.limit").value(50));
 		this.mvc.perform(get("/tracking/messages/{id}", messageId))
 			.andExpect(jsonPath("$.data.errorCode").value("XML_PARSE_ERROR"))
@@ -127,6 +132,12 @@ class TrackingIntegrationTest {
 			.andReturn();
 		List<String> ids = JsonPath.read(afterFirst.getResponse().getContentAsString(), "$.data[*].messageId");
 		assertThat(ids).as("커서 뒤만").allSatisfy(id -> assertThat(id).isGreaterThan(first));
+		List<Map<String, Object>> completed = JsonPath.read(afterFirst.getResponse().getContentAsString(),
+				"$.data[?(@.messageId == '" + second + "')]");
+		assertThat(completed).singleElement().satisfies(item -> {
+			assertThat(item).containsEntry("state", "COMPLETED").containsEntry("responseStatus", 200);
+			assertThat(item.get("errorCode")).as("완료 메시지는 오류 코드가 없다").isNull();
+		});
 
 		this.mvc.perform(get("/tracking/messages").param("from", receivedAt).param("after", first))
 			.andExpect(jsonPath("$.data[*].messageId", hasItems(second)));

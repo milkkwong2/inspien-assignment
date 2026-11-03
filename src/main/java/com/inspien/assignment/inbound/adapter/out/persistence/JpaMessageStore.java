@@ -7,7 +7,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.querydsl.core.Tuple;
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.StringExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -18,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
+import com.inspien.assignment.inbound.application.MessageListItem;
 import com.inspien.assignment.inbound.application.MessageSummary;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.inbound.application.port.MessageStore;
@@ -124,16 +129,25 @@ class JpaMessageStore implements MessageStore {
 			.map(JpaMessageStore::toSummary);
 	}
 
+	/**
+	 * 목록에 보여 줄 칸만 읽는다. 받은 원문(RAW_BODY, 최대 1MB)은 읽지 않는다. 응답 본문은 오류 코드가 필요한 미완료 메시지만
+	 * 읽는다. 완료 메시지의 응답 본문은 수신 결과 전체라 크고, 목록에는 쓰지 않는다.
+	 */
 	@Override
-	public List<MessageSummary> findSummaries(MessageState state, Instant from, Instant to, String after, int limit) {
+	public List<MessageListItem> findListItems(MessageState state, Instant from, Instant to, String after, int limit) {
+		StringExpression errorBody = new CaseBuilder().when(message.state.ne(MessageState.COMPLETED.name()))
+			.then(message.responseBody)
+			.otherwise(Expressions.nullExpression(String.class));
 		// where에 null을 넘기면 그 조건은 빠진다. 값이 있는 조건만 붙는다
-		List<ReceivedMessageEntity> found = this.query.selectFrom(message)
+		List<Tuple> found = this.query
+			.select(message.id, message.state, message.responseStatus, message.receivedAt, errorBody)
+			.from(message)
 			.where(stateIs(state), receivedFrom(from), receivedBefore(to), idAfter(after))
 			.orderBy(message.id.asc())
 			.limit(limit)
 			.fetch();
 		return found.stream()
-			.map(JpaMessageStore::toSummary)
+			.map(row -> toListItem(row, errorBody))
 			.toList();
 	}
 
@@ -170,6 +184,17 @@ class JpaMessageStore implements MessageStore {
 		}
 		return new MessageSummary(entity.id(), state, entity.responseStatus(), entity.receivedAt(),
 				entity.completedAt(), errorCode, errorDetail, result);
+	}
+
+	/**
+	 * 오류 본문(Problem Details JSON)에서 code만 꺼낸다. 완료 메시지는 본문을 읽지 않았고 처리 중 메시지는 본문이 없어 null이다.
+	 */
+	private static MessageListItem toListItem(Tuple row, StringExpression errorBody) {
+		MessageState state = MessageState.valueOf(row.get(message.state));
+		String body = row.get(errorBody);
+		String errorCode = (body != null) ? JSON.readTree(body).path("code").asString(null) : null;
+		return new MessageListItem(row.get(message.id), state, row.get(message.responseStatus),
+				row.get(message.receivedAt), errorCode);
 	}
 
 	private ReceivedMessageEntity find(String messageId) {

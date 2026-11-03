@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import com.inspien.assignment.global.error.ApiException;
 import com.inspien.assignment.global.error.ErrorCode;
 import com.inspien.assignment.inbound.application.InboundQueryService;
+import com.inspien.assignment.inbound.application.MessageListItem;
 import com.inspien.assignment.inbound.application.MessageSummary;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.inbound.domain.AssignedOrder;
@@ -152,9 +153,9 @@ public class TrackingQueryService {
 	 * 시간순)다.
 	 */
 	public Page<MessageSummaryView> messages(MessageState state, Instant from, Instant to, String after, int limit) {
-		List<MessageSummary> found = this.inbound.messages(state, from, to, after, limit + 1);
+		List<MessageListItem> found = this.inbound.messages(state, from, to, after, limit + 1);
 		boolean hasMore = found.size() > limit;
-		List<MessageSummary> page = hasMore ? found.subList(0, limit) : found;
+		List<MessageListItem> page = hasMore ? found.subList(0, limit) : found;
 		List<MessageSummaryView> items = page.stream()
 			.map(this::summaryView)
 			.toList();
@@ -232,7 +233,7 @@ public class TrackingQueryService {
 				event.messageId(), event.orderId());
 	}
 
-	private MessageSummaryView summaryView(MessageSummary message) {
+	private MessageSummaryView summaryView(MessageListItem message) {
 		return new MessageSummaryView(message.messageId(), message.state().name(), message.responseStatus(),
 				time(message.receivedAt()), message.errorCode());
 	}

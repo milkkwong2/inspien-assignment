@@ -19,6 +19,9 @@ public enum ErrorCode {
 	/** 조회 대상이 없음 */
 	NOT_FOUND(HttpStatus.NOT_FOUND, null),
 
+	/** 수신 본문이 상한(app.inbound.max-body-size)을 넘음. 저장하기 전에 거절해 기록이 남지 않는다 (D-17) */
+	PAYLOAD_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, null),
+
 	/** 재처리할 단계가 없음: "사람이 확인" 표시가 하나도 없다. 아직 처리 중이거나 이미 끝났다 (D-26) */
 	NOTHING_TO_RETRY(HttpStatus.CONFLICT, null),
 

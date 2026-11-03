@@ -38,6 +38,8 @@ app:
     # VARCHAR2(100 BYTE), DB 문자셋 AL32UTF8: 제공 환경에서 확인했다 (설계서 §11.1)
     db-charset: UTF-8
     max-value-bytes: 100
+    # 본문 상한. 넘으면 H2에 저장하기 전에 413으로 거절한다. 샘플 63건이 몇 KB라 1MB면 수천 건 묶음도 받는다
+    max-body-size: 1MB
   ftp:
     connect-timeout: 5s
     command-timeout: 30s

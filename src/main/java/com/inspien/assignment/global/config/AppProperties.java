@@ -3,6 +3,7 @@ package com.inspien.assignment.global.config;
 import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
 
 /**
  * 애플리케이션 설정 (설계서 §9). 값은 프로필(local, provided)이 채운다.
@@ -74,9 +75,10 @@ public record AppProperties(Applicant applicant, Oracle oracle, Db orderDb, Db s
 	 * @param lockWait 수신 잠금 대기 상한 (D-16)
 	 * @param dbCharset ORDER_TB 값 길이를 바이트로 셀 때의 문자셋 (D-07, 설계서 §11)
 	 * @param maxValueBytes ORDER_TB 컬럼 최대 바이트 수 (VARCHAR2(100))
+	 * @param maxBodySize 수신 본문 상한. 넘으면 저장하기 전에 413으로 거절한다 (D-17)
 	 */
 	public record Inbound(String defaultCharset, Duration duplicateWindow, int lockStripes, Duration lockWait,
-			String dbCharset, int maxValueBytes) {
+			String dbCharset, int maxValueBytes, DataSize maxBodySize) {
 	}
 
 	/**

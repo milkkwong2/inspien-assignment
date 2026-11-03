@@ -535,6 +535,7 @@ Content-Type: application/xml; charset=EUC-KR
 | 🟢 `200` | 저장 완료 (일부 거부 포함) | 메시지 ID, 저장 목록(`ORDER_ID`, `USER_ID`, `ITEM_ID`), 거부 목록(사유), 경고 목록 | 끝. 거부 건은 데이터를 고쳐서 새로 보낸다 |
 | 🟢 `200` | 완료 후 1분 안에 같은 본문 (이전 메시지 완료) | 처음 응답 + **"이전 결과를 다시 보냄" 표시**와 안내 | 재전송이었다면 끝. 새 주문이었다면 1분 뒤 다시 보내면 새 주문으로 처리된다 |
 | 🔴 `400` | XML 파싱 실패 (읽을 수 없는 바이트, 허용하지 않는 문자셋, DOCTYPE 포함, 빈 본문, D-20). 빈 본문은 0바이트이거나 BOM·XML 선언·공백만 있는 본문이다 | Problem Details, `retryable: false` | 본문을 고쳐서 보낸다. 그대로 다시 보내면 또 `400` |
+| 🔴 `413` | 본문이 상한(기본 1MB)을 넘음. 저장·잠금 전에 거절하므로 H2에 기록이 없고 조회 API에도 나오지 않는다 (로그에만 남음) | Problem Details, 오류 코드 `PAYLOAD_TOO_LARGE`, `retryable: false` (메시지 ID 없음) | 묶음을 나눠서 보낸다 |
 | 🔴 `500` | 예상 밖 상태: 미리 배정한 번호의 행이 일부만 있거나 원본과 다름 (재처리 전 조회, 또는 PK 충돌 뒤 다시 조회한 결과, D-16·D-19) | Problem Details, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | 채번 소진 (`Z999` 초과, D-08) | Problem Details, 오류 코드 `ORDER_ID_EXHAUSTED`, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | Oracle이 저장을 거절 (값 길이 초과, NOT NULL·제약 위반, 권한 없음 등 연결·자원 계열이 아닌 오류, D-17) | Problem Details, 오류 코드 `ORDER_DB_REJECTED`, `retryable: false` | 연계 담당자에게 문의. 그대로 다시 보내면 또 `500` |
@@ -562,6 +563,7 @@ Content-Type: application/xml; charset=EUC-KR
 | `code` | 상태 | `retryable` |
 |---|---|---|
 | `XML_PARSE_ERROR` | `400` | false |
+| `PAYLOAD_TOO_LARGE` | `413` | false (`messageId` 없음) |
 | `UNEXPECTED_STATE` | `500` | false |
 | `ORDER_ID_EXHAUSTED` | `500` | false |
 | `ORDER_DB_REJECTED` | `500` | false |
@@ -1021,6 +1023,7 @@ timeline
 
 | 구간 | 오류 | 처리 | 근거 |
 |---|---|---|---|
+| 수신 | 본문이 상한(`max-body-size`)을 넘음 (Content-Length로 먼저 보고, 없거나 틀려도 상한 + 1바이트까지만 읽어 판단) | `413 PAYLOAD_TOO_LARGE`. 잠금도 저장도 하기 전에 거절해 H2에 기록이 없고 조회 API에 나오지 않는다. WARN 로그(받은 크기)만 남는다 | D-17, D-19 |
 | 수신 | XML 파싱 실패 (빈 본문 포함: 0바이트, 또는 BOM·XML 선언·공백만 있음) | `400`, H2에 원본과 실패 기록 | D-04, D-17 |
 | 수신 | 인코딩 오류 (읽을 수 없는 바이트, 허용하지 않는 문자셋) 또는 DOCTYPE | `400 XML_PARSE_ERROR`, `detail`에 원인과 위치. 대체 문자로 바꿔 저장하지 않는다 | D-07, D-20 |
 | 수신 | 주문 검증 실패 | 그 주문만 거부, 나머지 저장. `200`에 거부 목록 | D-07 |
@@ -1093,6 +1096,7 @@ sequenceDiagram
 | 수신 | 해시 중복 판단 시간 창 (완료된 메시지에만) | 완료 후 1분 | 저장소 | D-05, D-15, D-24 |
 | 수신 | 수신 잠금 수 N | 16 | 저장소 | D-16, D-19 |
 | 수신 | 수신 잠금 대기 상한 | 10초 | 저장소 | D-16, D-19 |
+| 수신 | 본문 상한 (`max-body-size`). 넘으면 저장 전에 `413`으로 거절하고 기록하지 않는다 | 1MB (샘플 63건이 몇 KB라 수천 건 묶음도 받는다) | 저장소 | D-17, D-19 |
 | 수신 | `503`의 `Retry-After` | `BUSY` 5초, DB 장애 30초 | 저장소 (오류 코드 enum) | D-17, D-19 |
 | 조회 API | 목록 건수 `limit` 기본값, 최댓값 | 50, 200 | 저장소 | D-18 |
 | 영수증 | 내용 인코딩 | UTF-8 + BOM | 저장소 | D-09 |

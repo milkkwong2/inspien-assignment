@@ -64,7 +64,17 @@ class OrderServiceIntegrationTest {
 
 		// 다른 지원자의 N 주문이 150건 넘게 있지만 내 것만 나온다
 		assertThat(this.orders.findIdsByStatus(OrderStatus.N)).contains("A020", "A021").doesNotContain("A150");
-		assertThat(this.orders.findAllStatuses()).containsEntry("A020", OrderStatus.N).doesNotContainKey("A150");
+	}
+
+	@Test
+	void seesOnlyMyOrdersByStatusAfterCursor() {
+		this.orders.insertAll(List.of(order("A060"), order("A061"), order("A062")));
+		this.orders.close("A062");
+
+		// 커서 자신과 앞 번호는 빠지고, 뒤 번호 중 이 상태인 내 주문만 오름차순으로 나온다
+		List<String> ids = this.orders.findIdsByStatusAfter(OrderStatus.N, "A060");
+		assertThat(ids).contains("A061").doesNotContain("A020", "A060", "A062", "A150").isSorted();
+		assertThat(ids).allSatisfy(id -> assertThat(id).isGreaterThan("A060"));
 	}
 
 	@Test

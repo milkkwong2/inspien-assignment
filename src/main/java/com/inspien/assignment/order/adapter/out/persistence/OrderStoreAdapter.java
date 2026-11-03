@@ -1,12 +1,9 @@
 package com.inspien.assignment.order.adapter.out.persistence;
 
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-import com.querydsl.core.Tuple;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -83,15 +80,12 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 	}
 
 	@Override
-	public Map<String, OrderStatus> findAllStatuses() {
-		Map<String, OrderStatus> statuses = new LinkedHashMap<>();
-		for (Tuple row : this.query.select(order.orderId, order.status)
+	public List<String> findIdsByStatusAfter(OrderStatus status, String after) {
+		return this.query.select(order.orderId)
 			.from(order)
+			.where(order.status.eq(status.name()), order.orderId.gt(after))
 			.orderBy(order.orderId.asc())
-			.fetch()) {
-			statuses.put(row.get(order.orderId), OrderStatus.fromDb(row.get(order.status)));
-		}
-		return statuses;
+			.fetch();
 	}
 
 	@Override

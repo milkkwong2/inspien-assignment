@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,7 +36,7 @@ import com.inspien.assignment.tracking.domain.EventRecord;
 
 /**
  * IF-04 처리 추적 조회 (설계서 §5.4, D-13, D-26). 읽기만 한다. Oracle STATUS(연계 완료 N/Y)와 H2 단계별 상태·이력을
- * 합친다.
+ * 합친다. 주문 목록은 진행 중(N) 주문만 보여 주고, 끝난(Y) 주문은 주문번호로 상세를 본다.
  *
  * <p>둘이 어긋나면 정해 둔 쪽을 따른다. STATUS=Y인데 H2 기록이 없으면(H2 유실) 끝난 주문이라 두 단계를 DONE으로 보여 준다.
  * H2 조회가 실패하면 예외가 그대로 올라가 오류로 응답한다. "기록 없음"으로 바꿔 보여 주지 않는다.
@@ -80,27 +79,24 @@ public class TrackingQueryService {
 	}
 
 	/**
-	 * 주문 목록. 단계별 상태와 수신 시각으로 먼저 거르고 나서 after·limit으로 자른다. 자른 뒤에 거르면 한 페이지가 비거나 다음
-	 * 커서가 틀린다. 커서는 ORDER_ID다. 고정 길이라 문자열 순서가 번호 순서이고, 조회 중 새 주문이 들어와도 결과가 밀리지
-	 * 않는다.
+	 * 진행 중(STATUS=N) 주문 목록. 막힌 주문을 찾는 데 쓴다. 끝난(Y) 주문은 쌓이기만 해서 목록에 넣으면 한 페이지를 위해
+	 * 전부 읽게 되므로 넣지 않는다. 끝난 주문은 주문번호로 상세를 본다 ({@link #order(String)}).
+	 *
+	 * <p>커서(after)는 Oracle 조회에 넣는다({@code ORDER_ID > after}). 단계별 상태와 수신 시각은 H2에 있어 합친 뒤에 거르고, 거른
+	 * 다음에 limit으로 자른다. 자른 뒤에 거르면 한 페이지가 비거나 다음 커서가 틀린다. 커서는 ORDER_ID다. 고정 길이라 문자열
+	 * 순서가 번호 순서이고, 조회 중 새 주문이 들어와도 결과가 밀리지 않는다.
 	 *
 	 * @param receipt 영수증 단계 상태 조건 (없으면 전부)
 	 * @param shipment 배송 단계 상태 조건 (없으면 전부)
 	 */
 	public Page<OrderSummary> orders(StageStatus receipt, StageStatus shipment, Instant from, Instant to, String after,
 			int limit) {
-		// PENDING·FAILED 조건이 있으면 Y 주문(두 단계 모두 DONE)은 볼 필요가 없다
-		Map<String, OrderStatus> statuses = (unfinished(receipt) || unfinished(shipment)) ? onlyN()
-				: this.orders.findAllStatuses();
-		List<String> candidates = statuses.keySet()
-			.stream()
-			.filter(id -> after == null || id.compareTo(after) > 0)
-			.toList();
+		List<String> candidates = inProgressIds(after);
 		Map<Stage, Map<String, StageState>> stages = this.retry.findAll(candidates);
 		Map<String, AssignedOrder> assigned = this.inbound.assignments(candidates);
 		List<String> matched = candidates.stream()
-			.filter(id -> matches(receipt, statuses.get(id), stages.get(Stage.RECEIPT).get(id)))
-			.filter(id -> matches(shipment, statuses.get(id), stages.get(Stage.SHIPMENT).get(id)))
+			.filter(id -> matches(receipt, stages.get(Stage.RECEIPT).get(id)))
+			.filter(id -> matches(shipment, stages.get(Stage.SHIPMENT).get(id)))
 			.filter(id -> (from == null && to == null) || inRange(assigned.get(id), from, to))
 			.toList();
 		boolean hasMore = matched.size() > limit;
@@ -109,10 +105,20 @@ public class TrackingQueryService {
 		for (String id : pageIds) {
 			StageState receiptState = stages.get(Stage.RECEIPT).get(id);
 			StageState shipmentState = stages.get(Stage.SHIPMENT).get(id);
-			items.add(toOrderSummary(id, statuses.get(id), receiptState, shipmentState, assigned.get(id)));
+			items.add(toOrderSummary(id, OrderStatus.N, receiptState, shipmentState, assigned.get(id)));
 		}
 		String nextAfter = hasMore ? pageIds.getLast() : null;
 		return new Page<>(items, nextAfter, limit);
+	}
+
+	/**
+	 * 목록 후보: 진행 중(N) 주문번호, 오름차순. 첫 페이지는 전부, 다음 페이지는 after 뒤부터.
+	 */
+	private List<String> inProgressIds(String after) {
+		if (after == null) {
+			return this.orders.findIdsByStatus(OrderStatus.N);
+		}
+		return this.orders.findIdsByStatusAfter(OrderStatus.N, after);
 	}
 
 	private OrderSummary toOrderSummary(String orderId, OrderStatus status, StageState receiptState,
@@ -188,20 +194,11 @@ public class TrackingQueryService {
 		return (status == OrderStatus.Y) ? StageStatus.DONE : StageState.statusOf(state);
 	}
 
-	private static boolean matches(StageStatus wanted, OrderStatus status, StageState state) {
-		return wanted == null || stageStatus(status, state) == wanted;
-	}
-
-	private static boolean unfinished(StageStatus wanted) {
-		return wanted == StageStatus.PENDING || wanted == StageStatus.FAILED;
-	}
-
-	private Map<String, OrderStatus> onlyN() {
-		Map<String, OrderStatus> statuses = new LinkedHashMap<>();
-		for (String id : this.orders.findIdsByStatus(OrderStatus.N)) {
-			statuses.put(id, OrderStatus.N);
-		}
-		return statuses;
+	/**
+	 * 목록은 N 주문만 다루므로 단계 상태는 H2 기록에서 바로 나온다.
+	 */
+	private static boolean matches(StageStatus wanted, StageState state) {
+		return wanted == null || StageState.statusOf(state) == wanted;
 	}
 
 	/**

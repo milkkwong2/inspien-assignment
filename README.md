@@ -32,7 +32,7 @@
 # 주문 수신 (송신자처럼 인코딩 표시 없이 EUC-KR로)
 curl -X POST http://localhost:8080/orders -H "Content-Type: application/xml" --data-binary @order.xml
 
-# 처리 추적
+# 처리 추적 (주문 목록은 진행 중(N) 주문만, 끝난 주문은 주문번호로)
 curl http://localhost:8080/tracking/orders/A001
 curl "http://localhost:8080/tracking/orders?receipt=FAILED"
 curl "http://localhost:8080/tracking/orders?shipment=PENDING"

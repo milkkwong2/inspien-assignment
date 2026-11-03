@@ -2,7 +2,6 @@ package com.inspien.assignment.order.application;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -47,12 +46,9 @@ public class OrderService {
 		return this.store.findIdsByStatus(status);
 	}
 
-	/**
-	 * 내 주문번호와 STATUS 전부, 주문번호 오름차순.
-	 */
 	@OrderTx(readOnly = true)
-	public Map<String, OrderStatus> findAllStatuses() {
-		return this.store.findAllStatuses();
+	public List<String> findIdsByStatusAfter(OrderStatus status, String after) {
+		return this.store.findIdsByStatusAfter(status, after);
 	}
 
 	/**

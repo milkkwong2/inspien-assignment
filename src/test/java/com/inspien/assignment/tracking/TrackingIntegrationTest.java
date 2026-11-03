@@ -176,6 +176,44 @@ class TrackingIntegrationTest {
 	}
 
 	@Test
+	void orderListShowsOnlyInProgressOrders() throws Exception {
+		// 끝난 주문 둘: 처리를 다 거친 주문과 H2 기록이 없는 주문
+		String finished = JsonPath.read(receive("G").getResponse().getContentAsString(), "$.data.stored[0].orderId");
+		this.receipts.runCycle();
+		this.shipments.runCycle();
+		this.close.runCycle();
+		this.orders.insertAll(List.of(Order.received("Z902", "U", "I", "N", "A", "IN", "1")));
+		this.orders.close("Z902");
+		String inProgress = JsonPath.read(receive("H").getResponse().getContentAsString(), "$.data.stored[0].orderId");
+
+		MvcResult all = this.mvc.perform(get("/tracking/orders").param("after", previous(finished)).param("limit", "200"))
+			.andExpect(status().isOk())
+			.andReturn();
+		List<String> listed = JsonPath.read(all.getResponse().getContentAsString(), "$.data[*].orderId");
+		assertThat(listed).contains(inProgress).doesNotContain(finished, "Z902");
+		MvcResult done = this.mvc
+			.perform(get("/tracking/orders").param("receipt", "DONE")
+				.param("shipment", "DONE")
+				.param("after", previous(finished))
+				.param("limit", "200"))
+			.andExpect(status().isOk())
+			.andReturn();
+		List<String> doneListed = JsonPath.read(done.getResponse().getContentAsString(), "$.data[*].orderId");
+		assertThat(doneListed).as("끝난 주문은 DONE 조건으로도 목록에 없다").doesNotContain(finished, "Z902");
+
+		// 끝난 주문은 주문번호로 본다
+		this.mvc.perform(get("/tracking/orders/{id}", finished))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("Y"))
+			.andExpect(jsonPath("$.data.receipt.status").value("DONE"))
+			.andExpect(jsonPath("$.data.shipment.status").value("DONE"));
+		this.mvc.perform(get("/tracking/orders/{id}", "Z902"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("Y"))
+			.andExpect(jsonPath("$.data.receipt.status").value("DONE"));
+	}
+
+	@Test
 	void orderListPagesWithCursor() throws Exception {
 		receive("C");
 		receive("D");

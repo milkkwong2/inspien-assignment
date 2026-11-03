@@ -72,7 +72,8 @@ class BootstrapInputTest {
 	void toStringMasksSecretsAndPersonalData() {
 		String text = input("010-1234-5678", "hong@example.com").toString();
 
-		assertThat(text).doesNotContain("secret-password", "010-1234-5678", "hong@example.com", "secret-user");
+		assertThat(text).doesNotContain("secret-password", "010-1234-5678", "hong@example.com", "secret-user",
+				"홍길동");
 	}
 
 	private static BootstrapInput input(String phone, String email) {

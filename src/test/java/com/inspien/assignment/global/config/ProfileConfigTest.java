@@ -49,7 +49,8 @@ class ProfileConfigTest {
 			assertThat(properties.shipmentDb().poolSize()).isEqualTo(2);
 			assertThat(properties.ftp().port()).isEqualTo(30021);
 			assertThat(properties.ftp().path()).isEqualTo("Recruit/2026/");
-			assertThat(properties.toString()).doesNotContain("p$w=1", "fp");
+			assertThat(properties.toString()).doesNotContain("p$w=1", "fp", "FAKE-KEY-1", "홍길동")
+				.contains("Applicant[key=FAKE******, name=****]");
 		}
 	}
 

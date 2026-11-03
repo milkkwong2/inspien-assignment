@@ -121,7 +121,8 @@ public final class ResponseProcessor {
 
 		@Override
 		public String toString() {
-			return "Result[applicantKey=" + this.applicantKey + ", sampleOrder=" + this.sampleOrder.length + " bytes]";
+			return "Result[applicantKey=" + BootstrapProcess.mask(this.applicantKey) + ", sampleOrder="
+					+ this.sampleOrder.length + " bytes]";
 		}
 
 	}

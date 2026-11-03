@@ -99,8 +99,8 @@ public record BootstrapInput(String apiUrl, String username, String password, St
 	 */
 	@Override
 	public String toString() {
-		return "BootstrapInput[apiUrl=" + this.apiUrl + ", username=****, password=****, name=" + this.name
-				+ ", phoneNumber=****, email=****]";
+		return "BootstrapInput[apiUrl=" + this.apiUrl
+				+ ", username=****, password=****, name=****, phoneNumber=****, email=****]";
 	}
 
 }

@@ -54,6 +54,14 @@ class ResponseProcessorTest {
 	}
 
 	@Test
+	void toStringMasksApplicantKey() {
+		ResponseProcessor.Result result = this.processor.process(response(quoted(encrypt("a")),
+				quoted(encrypt("b")), quoted(encrypt("c"))));
+
+		assertThat(result.toString()).contains("KEY-****").doesNotContain("KEY-1234");
+	}
+
+	@Test
 	void reportsMissingFields() {
 		assertThatThrownBy(() -> this.processor.process("{\"APPLICANT_KEY\":\"K\",\"FTP_CONN\":null}"))
 			.isInstanceOf(BootstrapException.class)

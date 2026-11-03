@@ -32,7 +32,7 @@ class ProcessEventListener {
 			this.recorder.record(event);
 		}
 		catch (RuntimeException ex) {
-			log.warn("처리 이벤트를 H2에 남기지 못했습니다: {}", event, ex);
+			log.warn("처리 이벤트를 H2에 남기지 못했습니다: {}", event.logSummary(), ex);
 		}
 	}
 

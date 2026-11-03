@@ -63,7 +63,7 @@ public class ProcessEvents {
 			this.publisher.publishEvent(event);
 		}
 		catch (RuntimeException ex) {
-			log.warn("처리 이벤트를 남기지 못했습니다: {}", event, ex);
+			log.warn("처리 이벤트를 남기지 못했습니다: {}", event.logSummary(), ex);
 		}
 	}
 

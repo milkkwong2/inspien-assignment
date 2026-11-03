@@ -19,6 +19,15 @@ public record ProcessEvent(Instant occurredAt, String messageId, String orderId,
 		String detail) {
 
 	/**
+	 * 기록에 실패했을 때 로그에 남길 요약. 무엇이 빠졌는지 찾아갈 식별자만 담는다. detail에는 쇼핑몰 회원 ID나 상대 시스템의
+	 * 오류 문구가 들어갈 수 있어 로그에 남기지 않는다.
+	 */
+	public String logSummary() {
+		return "stage=" + this.stage + ", result=" + this.result + ", messageId=" + this.messageId + ", orderId="
+				+ this.orderId + ", occurredAt=" + this.occurredAt;
+	}
+
+	/**
 	 * CLOSE는 마감(STATUS N→Y)이다 (D-26).
 	 */
 	public enum Stage {

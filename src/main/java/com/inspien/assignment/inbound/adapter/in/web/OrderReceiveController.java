@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.web.ApiResponse;
+import com.inspien.assignment.inbound.application.InboundProperties;
 import com.inspien.assignment.inbound.application.ReceiveOrderService;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 
@@ -32,9 +32,9 @@ class OrderReceiveController {
 
 	private final LimitedBodyReader bodyReader;
 
-	OrderReceiveController(ReceiveOrderService service, AppProperties properties) {
+	OrderReceiveController(ReceiveOrderService service, InboundProperties inbound) {
 		this.service = service;
-		this.bodyReader = new LimitedBodyReader(properties.inbound().maxBodySize());
+		this.bodyReader = new LimitedBodyReader(inbound.maxBodySize());
 	}
 
 	@PostMapping("/orders")

@@ -39,7 +39,7 @@ class XmlOrderMessageParserTest {
 			<ITEM><USER_ID>USER01</USER_ID><ITEM_ID>ITEM10</ITEM_ID><ITEM_NAME>노트북 거치대, 블랙</ITEM_NAME><PRICE>32000</PRICE></ITEM>
 			""";
 
-	final XmlOrderMessageParser parser = new XmlOrderMessageParser("EUC-KR");
+	final XmlOrderMessageParser parser = new XmlOrderMessageParser(EUC_KR);
 
 	@Test
 	void readsSampleShapeWithoutRootOrDeclarationAsEucKr() {
@@ -96,7 +96,7 @@ class XmlOrderMessageParserTest {
 		byte[] body = "<HEADER><NAME>홍</NAME></HEADER>".getBytes(StandardCharsets.UTF_8);
 
 		// UTF-8 한글을 EUC-KR(기본값)로 읽으면 읽을 수 없는 바이트가 나온다. 대체 문자로 바꾸지 않는다
-		assertThatThrownBy(() -> new XmlOrderMessageParser("EUC-KR").parse(body, "application/xml; charset=UTF-8x"))
+		assertThatThrownBy(() -> new XmlOrderMessageParser(EUC_KR).parse(body, "application/xml; charset=UTF-8x"))
 			.isInstanceOf(MessageParseException.class)
 			.hasMessageContaining("허용하지 않는 문자셋");
 		assertThatThrownBy(() -> this.parser.parse(new byte[] { '<', 'A', '>', (byte) 0xFF, (byte) 0xFF }, null))

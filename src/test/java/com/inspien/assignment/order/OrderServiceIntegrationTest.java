@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.ApplicantProperties;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
@@ -31,7 +31,7 @@ class OrderServiceIntegrationTest {
 	OrderService orders;
 
 	@Autowired
-	AppProperties properties;
+	ApplicantProperties applicant;
 
 	@Autowired
 	@Qualifier("orderDataSource")
@@ -43,7 +43,7 @@ class OrderServiceIntegrationTest {
 
 		JdbcTemplate jdbc = new JdbcTemplate(this.dataSource);
 		assertThat(jdbc.queryForList("SELECT APPLICANT_KEY FROM ORDER_TB WHERE ORDER_ID = 'A001'", String.class))
-			.contains("OTHER-APPLICANT-1", "OTHER-APPLICANT-2", this.properties.applicant().key());
+			.contains("OTHER-APPLICANT-1", "OTHER-APPLICANT-2", this.applicant.key());
 		assertThat(this.orders.findByIds(List.of("A001", "A002"))).extracting(Order::name)
 			.containsExactly("김민수", "김민수");
 	}
@@ -98,7 +98,7 @@ class OrderServiceIntegrationTest {
 
 		JdbcTemplate jdbc = new JdbcTemplate(this.dataSource);
 		assertThat(jdbc.queryForObject("SELECT CREATE_TIME FROM ORDER_TB WHERE ORDER_ID = 'A040' AND APPLICANT_KEY = ?",
-				Timestamp.class, this.properties.applicant().key()))
+				Timestamp.class, this.applicant.key()))
 			.isNotNull();
 	}
 
@@ -109,7 +109,7 @@ class OrderServiceIntegrationTest {
 		// 제공 환경과 같은 CHECK 제약을 로컬에서도 재현한다 (설계서 §11.1, D-14)
 		assertThatThrownBy(() -> new JdbcTemplate(this.dataSource).update(
 				"UPDATE ORDER_TB SET STATUS = 'RECEIVED' WHERE ORDER_ID = 'A050' AND APPLICANT_KEY = ?",
-				this.properties.applicant().key()))
+				this.applicant.key()))
 			.hasMessageContaining("ORA-02290");
 	}
 

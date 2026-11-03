@@ -7,7 +7,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.inbound.domain.MessageKey;
 
 /**
@@ -25,8 +24,8 @@ class MessageLocks {
 	private final Duration wait;
 
 	@Autowired
-	MessageLocks(AppProperties properties) {
-		this(properties.inbound().lockStripes(), properties.inbound().lockWait());
+	MessageLocks(InboundProperties inbound) {
+		this(inbound.lockStripes(), inbound.lockWait());
 	}
 
 	MessageLocks(int stripes, Duration wait) {

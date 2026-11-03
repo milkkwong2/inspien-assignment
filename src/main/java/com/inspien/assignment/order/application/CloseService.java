@@ -5,7 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.cycle.application.CycleRunner;
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.SchedulerProperties;
 import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.event.ProcessEvents;
@@ -38,12 +38,12 @@ public class CloseService {
 	private final int batchSize;
 
 	public CloseService(OrderService orders, StageService stages, ProcessEvents events, CycleRunner cycles,
-			AppProperties properties) {
+			SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.stages = stages;
 		this.events = events;
 		this.cycles = cycles;
-		this.batchSize = properties.scheduler().batchSize();
+		this.batchSize = scheduler.batchSize();
 	}
 
 	public void runCycle() {

@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.ApplicantProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
@@ -58,7 +58,7 @@ class ReceiptFlowIntegrationTest {
 	MutableClock clock;
 
 	@Autowired
-	AppProperties properties;
+	ApplicantProperties applicant;
 
 	@Autowired
 	StageService stages;
@@ -76,7 +76,7 @@ class ReceiptFlowIntegrationTest {
 
 		this.receipts.runCycle();
 
-		String name = this.properties.applicant().name();
+		String name = this.applicant.name();
 		assertThat(this.ftp.files).containsKeys("영수증_" + name + "_" + ids.get(0) + ".csv",
 				"영수증_" + name + "_" + ids.get(1) + ".csv");
 		String csv = new String(this.ftp.files.get("영수증_" + name + "_" + ids.get(1) + ".csv"), StandardCharsets.UTF_8);
@@ -163,7 +163,7 @@ class ReceiptFlowIntegrationTest {
 	@Test
 	void partialFileIsReplacedUnderNextRevisionAndCompleteFileIsReused() {
 		List<String> ids = receiveTwoOrders("D");
-		String name = this.properties.applicant().name();
+		String name = this.applicant.name();
 		this.ftp.files.put("영수증_" + name + "_" + ids.get(0) + ".csv", new byte[] { 1, 2, 3 });
 
 		this.receipts.runCycle();

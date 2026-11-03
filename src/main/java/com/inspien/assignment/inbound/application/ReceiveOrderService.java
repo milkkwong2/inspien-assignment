@@ -1,6 +1,5 @@
 package com.inspien.assignment.inbound.application;
 
-import java.nio.charset.Charset;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,7 +21,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.error.ApiException;
 import com.inspien.assignment.global.error.DbFailures;
 import com.inspien.assignment.global.error.ErrorCode;
@@ -72,16 +70,15 @@ public class ReceiveOrderService {
 	private final ValueLimit valueLimit;
 
 	ReceiveOrderService(MessageLocks locks, InboundRecords records, OrderMessageParser parser, OrderService orders,
-			ProcessEvents events, Clock clock, AppProperties properties) {
+			ProcessEvents events, Clock clock, InboundProperties inbound) {
 		this.locks = locks;
 		this.records = records;
 		this.parser = parser;
 		this.orders = orders;
 		this.events = events;
 		this.clock = clock;
-		this.duplicateWindow = properties.inbound().duplicateWindow();
-		this.valueLimit = new ValueLimit(Charset.forName(properties.inbound().dbCharset()),
-				properties.inbound().maxValueBytes());
+		this.duplicateWindow = inbound.duplicateWindow();
+		this.valueLimit = inbound.valueLimit();
 	}
 
 	public ReceiveResult receive(byte[] body, String contentType) {

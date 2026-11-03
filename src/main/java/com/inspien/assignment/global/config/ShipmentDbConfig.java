@@ -33,8 +33,8 @@ class ShipmentDbConfig {
 
 	@Bean
 	LocalContainerEntityManagerFactoryBean shipmentEntityManagerFactory(
-			@Qualifier("shipmentDataSource") DataSource dataSource, AppProperties properties) {
-		return JpaSupport.sharedTableEntityManagerFactory("shipment", dataSource, properties.applicant().key(),
+			@Qualifier("shipmentDataSource") DataSource dataSource, ApplicantProperties applicant) {
+		return JpaSupport.sharedTableEntityManagerFactory("shipment", dataSource, applicant.key(),
 				PERSISTENCE_PACKAGE);
 	}
 

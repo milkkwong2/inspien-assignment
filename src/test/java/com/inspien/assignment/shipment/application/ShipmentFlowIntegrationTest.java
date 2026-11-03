@@ -17,7 +17,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.CannotCreateTransactionException;
 
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.ApplicantProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.numbering.application.NumberingService;
 import com.inspien.assignment.numbering.domain.IdSequence;
@@ -66,7 +66,7 @@ class ShipmentFlowIntegrationTest {
 	NumberingService numbering;
 
 	@Autowired
-	AppProperties properties;
+	ApplicantProperties applicant;
 
 	@Autowired
 	@Qualifier("shipmentDataSource")
@@ -93,7 +93,7 @@ class ShipmentFlowIntegrationTest {
 		assertThat(this.testOrders.statuses(ids)).as("STATUS는 마감 스케줄러 몫").containsOnly(OrderStatus.N);
 		JdbcTemplate jdbc = new JdbcTemplate(this.shipmentDataSource);
 		assertThat(jdbc.queryForList("SELECT ORDER_ID FROM SHIPMENT_TB WHERE APPLICANT_KEY = ?", String.class,
-				this.properties.applicant().key()))
+				this.applicant.key()))
 			.containsAll(ids);
 		// 다른 지원자의 SHIPMENT_ID A001과 겹쳐도 내 키로 따로 들어간다
 		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM SHIPMENT_TB WHERE APPLICANT_KEY = 'OTHER-APPLICANT-1'",
@@ -223,7 +223,7 @@ class ShipmentFlowIntegrationTest {
 	private int shipmentCount(String orderId) {
 		return new JdbcTemplate(this.shipmentDataSource).queryForObject(
 				"SELECT COUNT(*) FROM SHIPMENT_TB WHERE ORDER_ID = ? AND APPLICANT_KEY = ?", Integer.class, orderId,
-				this.properties.applicant().key());
+				this.applicant.key());
 	}
 
 	private long count(ProcessEvent.Result result) {

@@ -12,7 +12,6 @@ import org.apache.commons.net.ftp.FTPReply;
 
 import org.springframework.stereotype.Component;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 
 /**
@@ -27,16 +26,16 @@ import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 @Component
 class FtpReceiptUploader implements ReceiptUploader {
 
-	private final AppProperties.Ftp ftp;
+	private final FtpProperties ftp;
 
-	FtpReceiptUploader(AppProperties properties) {
-		this.ftp = properties.ftp();
+	FtpReceiptUploader(FtpProperties ftp) {
+		this.ftp = ftp;
 	}
 
 	@Override
 	public Session open() {
 		FTPClient client = new FTPClient();
-		client.setControlEncoding(this.ftp.filenameEncoding());
+		client.setControlEncoding(this.ftp.filenameEncoding().name());
 		client.setConnectTimeout((int) this.ftp.connectTimeout().toMillis());
 		client.setDefaultTimeout((int) this.ftp.commandTimeout().toMillis());
 		client.setDataTimeout(this.ftp.dataTimeout());

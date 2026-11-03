@@ -33,8 +33,8 @@ class OrderDbConfig {
 
 	@Bean
 	LocalContainerEntityManagerFactoryBean orderEntityManagerFactory(@Qualifier("orderDataSource") DataSource dataSource,
-			AppProperties properties) {
-		return JpaSupport.sharedTableEntityManagerFactory("order", dataSource, properties.applicant().key(),
+			ApplicantProperties applicant) {
+		return JpaSupport.sharedTableEntityManagerFactory("order", dataSource, applicant.key(),
 				PERSISTENCE_PACKAGE);
 	}
 

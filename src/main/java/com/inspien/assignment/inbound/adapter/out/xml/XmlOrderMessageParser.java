@@ -2,6 +2,7 @@ package com.inspien.assignment.inbound.adapter.out.xml;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,7 +22,7 @@ import org.xml.sax.SAXParseException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.inbound.application.InboundProperties;
 import com.inspien.assignment.inbound.application.port.OrderMessageParser;
 import com.inspien.assignment.inbound.domain.MessageParseException;
 import com.inspien.assignment.inbound.domain.OrderMessage;
@@ -49,11 +50,11 @@ class XmlOrderMessageParser implements OrderMessageParser {
 	private final DocumentBuilderFactory factory;
 
 	@Autowired
-	XmlOrderMessageParser(AppProperties properties) {
-		this(properties.inbound().defaultCharset());
+	XmlOrderMessageParser(InboundProperties inbound) {
+		this(inbound.defaultCharset());
 	}
 
-	XmlOrderMessageParser(String defaultCharset) {
+	XmlOrderMessageParser(Charset defaultCharset) {
 		this.decoder = new BodyDecoder(defaultCharset);
 		this.factory = secureFactory();
 	}

@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import com.inspien.assignment.cycle.application.ConnectionWatch;
 import com.inspien.assignment.cycle.application.CycleRunner;
 import com.inspien.assignment.cycle.application.NextStep;
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.SchedulerProperties;
 import com.inspien.assignment.global.error.DbFailures;
 import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
@@ -69,7 +69,7 @@ public class ShipmentService {
 
 	ShipmentService(OrderService orders, InboundQueryService inbound, StageService stages, NumberingService numbering,
 			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, StageFailures failures,
-			CycleRunner cycles, AppProperties properties) {
+			CycleRunner cycles, SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.stages = stages;
@@ -79,7 +79,7 @@ public class ShipmentService {
 		this.stageEvents = stageEvents;
 		this.failures = failures;
 		this.cycles = cycles;
-		this.batchSize = properties.scheduler().batchSize();
+		this.batchSize = scheduler.batchSize();
 		this.shipmentDb = new ConnectionWatch("운송회사 DB", EventStage.SHIPMENT, events);
 	}
 

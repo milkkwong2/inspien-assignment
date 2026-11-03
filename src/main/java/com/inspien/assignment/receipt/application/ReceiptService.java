@@ -14,7 +14,8 @@ import org.springframework.stereotype.Service;
 import com.inspien.assignment.cycle.application.ConnectionWatch;
 import com.inspien.assignment.cycle.application.CycleRunner;
 import com.inspien.assignment.cycle.application.NextStep;
-import com.inspien.assignment.global.config.AppProperties;
+import com.inspien.assignment.global.config.ApplicantProperties;
+import com.inspien.assignment.global.config.SchedulerProperties;
 import com.inspien.assignment.global.event.EventStage;
 import com.inspien.assignment.global.event.ProcessEvent.Result;
 import com.inspien.assignment.global.event.ProcessEvents;
@@ -75,7 +76,7 @@ public class ReceiptService {
 
 	public ReceiptService(OrderService orders, InboundQueryService inbound, StageService stages,
 			ReceiptUploader uploader, ProcessEvents events, StageFailures failures, CycleRunner cycles, Clock clock,
-			AppProperties properties) {
+			ApplicantProperties applicant, ReceiptProperties receipt, SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.stages = stages;
@@ -84,10 +85,10 @@ public class ReceiptService {
 		this.failures = failures;
 		this.cycles = cycles;
 		this.clock = clock;
-		this.applicantName = properties.applicant().name();
-		this.contentCharset = Charset.forName(properties.receipt().contentCharset());
-		this.bom = properties.receipt().bom();
-		this.batchSize = properties.scheduler().batchSize();
+		this.applicantName = applicant.name();
+		this.contentCharset = receipt.contentCharset();
+		this.bom = receipt.bom();
+		this.batchSize = scheduler.batchSize();
 		this.ftp = new ConnectionWatch("FTP", EventStage.RECEIPT, events);
 	}
 

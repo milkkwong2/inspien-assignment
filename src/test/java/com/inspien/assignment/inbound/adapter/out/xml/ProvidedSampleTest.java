@@ -1,6 +1,7 @@
 package com.inspien.assignment.inbound.adapter.out.xml;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +32,8 @@ class ProvidedSampleTest {
 	@Test
 	void sampleGives63Stored7Rejected4Warnings() throws IOException {
 		// 송신자처럼 인코딩 표시 없이 보낸다 (D-20)
-		OrderMessage message = new XmlOrderMessageParser("EUC-KR").parse(Files.readAllBytes(SAMPLE), null);
+		XmlOrderMessageParser parser = new XmlOrderMessageParser(Charset.forName("EUC-KR"));
+		OrderMessage message = parser.parse(Files.readAllBytes(SAMPLE), null);
 		OrderAssembly assembly = OrderAssembly.of(message, new ValueLimit(StandardCharsets.UTF_8, 100));
 
 		assertThat(message.headers()).hasSize(15);

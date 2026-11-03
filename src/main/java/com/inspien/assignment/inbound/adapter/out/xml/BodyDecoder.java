@@ -54,9 +54,13 @@ final class BodyDecoder {
 
 	private final String defaultCharset;
 
-	BodyDecoder(String defaultCharset) {
-		this.defaultCharset = defaultCharset;
-		resolve(defaultCharset, "기본 문자셋 설정");
+	/**
+	 * 설정은 Charset으로 받아 이름이 틀리면 바인딩에서 실패하고, 허용 목록에 드는지는 여기서 본다. 표시 없는 본문도 그
+	 * 이름으로 허용 목록을 거친다(EUC-KR → MS949).
+	 */
+	BodyDecoder(Charset defaultCharset) {
+		this.defaultCharset = defaultCharset.name();
+		resolve(this.defaultCharset, "기본 문자셋 설정");
 	}
 
 	/**

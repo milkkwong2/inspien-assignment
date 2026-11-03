@@ -16,7 +16,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -101,21 +100,16 @@ class FtpReceiptUploaderTest {
 
 	@Test
 	void unreachableServerIsConnectionFailure() {
-		AppProperties.Ftp ftp = new AppProperties.Ftp("127.0.0.1", 1, "recruit", "x", "Recruit/2026/",
-				Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(5), "UTF-8");
-		assertThatThrownBy(() -> new FtpReceiptUploader(properties(ftp)).open())
+		FtpProperties ftp = new FtpProperties("127.0.0.1", 1, "recruit", "x", "Recruit/2026/", Duration.ofSeconds(2),
+				Duration.ofSeconds(5), Duration.ofSeconds(5), StandardCharsets.UTF_8);
+		assertThatThrownBy(() -> new FtpReceiptUploader(ftp).open())
 			.isInstanceOf(ReceiptUploader.ConnectionFailedException.class);
 	}
 
 	static FtpReceiptUploader uploader(String password) {
-		AppProperties.Ftp ftp = new AppProperties.Ftp(FTP.getHost(), FTP.getMappedPort(21), "recruit", password,
-				"Recruit/2026/", Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofSeconds(30), "UTF-8");
-		return new FtpReceiptUploader(properties(ftp));
-	}
-
-	static AppProperties properties(AppProperties.Ftp ftp) {
-		return new AppProperties(new AppProperties.Applicant("K", "홍길동"), null, null, null, null, ftp, null, null,
-				null, null);
+		FtpProperties ftp = new FtpProperties(FTP.getHost(), FTP.getMappedPort(21), "recruit", password, "Recruit/2026/",
+				Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofSeconds(30), StandardCharsets.UTF_8);
+		return new FtpReceiptUploader(ftp);
 	}
 
 }

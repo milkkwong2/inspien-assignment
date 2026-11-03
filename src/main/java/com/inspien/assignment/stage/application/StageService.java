@@ -12,7 +12,6 @@ import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
 
-import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.transaction.HistoryTx;
 import com.inspien.assignment.stage.application.port.StageStore;
 import com.inspien.assignment.stage.domain.RetryPolicy;
@@ -36,10 +35,9 @@ public class StageService {
 
 	private final Clock clock;
 
-	public StageService(StageStore store, AppProperties properties, Clock clock) {
+	public StageService(StageStore store, RetryPolicy policy, Clock clock) {
 		this.store = store;
-		this.policy = new RetryPolicy(properties.retry().maxAttempts(), properties.retry().initialBackoff(),
-				properties.retry().multiplier());
+		this.policy = policy;
 		this.clock = clock;
 	}
 

@@ -22,7 +22,8 @@ import com.inspien.assignment.inbound.application.ReceiveResult;
  * 인코딩 판단은 파서가 한다 (D-20).
  *
  * <p>본문은 스트림에서 상한까지만 읽는다. 상한을 넘으면 서비스에 넘기기 전에 413으로 거절해 저장도 잠금도 하지 않는다
- * (D-17, {@link LimitedBodyReader}).
+ * (D-17, {@link LimitedBodyReader}). Content-Type 헤더도 H2 컬럼보다 길면 같은 자리에서 400으로 거절한다
+ * ({@link ContentTypeLimit}).
  */
 @RestController
 class OrderReceiveController {
@@ -39,6 +40,7 @@ class OrderReceiveController {
 	@PostMapping("/orders")
 	ApiResponse<ReceiveResult> receive(HttpServletRequest request,
 			@RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType) throws IOException {
+		ContentTypeLimit.check(contentType);
 		InputStream body = request.getInputStream();
 		long declaredLength = request.getContentLengthLong();
 		// 빈 요청도 빈 배열로 받아 파싱 실패(400)로 기록한다. @RequestBody(required = true)처럼 빈 본문을 막으면

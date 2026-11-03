@@ -536,6 +536,7 @@ Content-Type: application/xml; charset=EUC-KR
 | 🟢 `200` | 완료 후 1분 안에 같은 본문 (이전 메시지 완료) | 처음 응답 + **"이전 결과를 다시 보냄" 표시**와 안내 | 재전송이었다면 끝. 새 주문이었다면 1분 뒤 다시 보내면 새 주문으로 처리된다 |
 | 🔴 `400` | XML 파싱 실패 (읽을 수 없는 바이트, 허용하지 않는 문자셋, DOCTYPE 포함, 빈 본문, D-20). 빈 본문은 0바이트이거나 BOM·XML 선언·공백만 있는 본문이다 | Problem Details, `retryable: false` | 본문을 고쳐서 보낸다. 그대로 다시 보내면 또 `400` |
 | 🔴 `413` | 본문이 상한(기본 1MB)을 넘음. 저장·잠금 전에 거절하므로 H2에 기록이 없고 조회 API에도 나오지 않는다 (로그에만 남음) | Problem Details, 오류 코드 `PAYLOAD_TOO_LARGE`, `retryable: false` (메시지 ID 없음) | 묶음을 나눠서 보낸다 |
+| 🔴 `400` | `Content-Type` 헤더가 255자를 넘음 (H2 `CONTENT_TYPE` 컬럼 길이). 잘라서 저장하면 `charset`이 떨어져 다시 파싱할 때 다르게 읽힐 수 있어 자르지 않는다 (D-16, D-20). 413처럼 저장·잠금 전에 거절해 H2에 기록이 없다 (로그에만 남음) | Problem Details, 오류 코드 `INVALID_REQUEST`, `retryable: false` (메시지 ID 없음) | 헤더를 255자 이하로 줄여 보낸다 (`application/xml; charset=EUC-KR` 정도면 충분) |
 | 🔴 `500` | 예상 밖 상태: 미리 배정한 번호의 행이 일부만 있거나 원본과 다름 (재처리 전 조회, 또는 PK 충돌 뒤 다시 조회한 결과, D-16·D-19) | Problem Details, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | 채번 소진 (`Z999` 초과, D-08) | Problem Details, 오류 코드 `ORDER_ID_EXHAUSTED`, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | Oracle이 저장을 거절 (값 길이 초과, NOT NULL·제약 위반, 권한 없음 등 연결·자원 계열이 아닌 오류, D-17) | Problem Details, 오류 코드 `ORDER_DB_REJECTED`, `retryable: false` | 연계 담당자에게 문의. 그대로 다시 보내면 또 `500` |
@@ -564,6 +565,7 @@ Content-Type: application/xml; charset=EUC-KR
 |---|---|---|
 | `XML_PARSE_ERROR` | `400` | false |
 | `PAYLOAD_TOO_LARGE` | `413` | false (`messageId` 없음) |
+| `INVALID_REQUEST` (`Content-Type` 헤더 길이 초과) | `400` | false (`messageId` 없음) |
 | `UNEXPECTED_STATE` | `500` | false |
 | `ORDER_ID_EXHAUSTED` | `500` | false |
 | `ORDER_DB_REJECTED` | `500` | false |
@@ -1026,6 +1028,7 @@ timeline
 | 구간 | 오류 | 처리 | 근거 |
 |---|---|---|---|
 | 수신 | 본문이 상한(`max-body-size`)을 넘음 (Content-Length로 먼저 보고, 없거나 틀려도 상한 + 1바이트까지만 읽어 판단) | `413 PAYLOAD_TOO_LARGE`. 잠금도 저장도 하기 전에 거절해 H2에 기록이 없고 조회 API에 나오지 않는다. WARN 로그(받은 크기)만 남는다 | D-17, D-19 |
+| 수신 | `Content-Type` 헤더가 H2 컬럼 길이(255자)를 넘음 | `400 INVALID_REQUEST`. 413과 같은 자리에서 잠금·저장 전에 거절한다. 그대로 저장하면 H2 INSERT가 실패해 `503`이 나가고 재전송해도 계속 `503`이다. 자르지 않는다 (charset이 떨어지면 다시 파싱할 때 결과가 달라짐). WARN 로그(헤더 길이)만 남는다 | D-16, D-17, D-20 |
 | 수신 | XML 파싱 실패 (빈 본문 포함: 0바이트, 또는 BOM·XML 선언·공백만 있음) | `400`, H2에 원본과 실패 기록 | D-04, D-17 |
 | 수신 | 인코딩 오류 (읽을 수 없는 바이트, 허용하지 않는 문자셋) 또는 DOCTYPE | `400 XML_PARSE_ERROR`, `detail`에 원인과 위치. 대체 문자로 바꿔 저장하지 않는다 | D-07, D-20 |
 | 수신 | 주문 검증 실패 | 그 주문만 거부, 나머지 저장. `200`에 거부 목록 | D-07 |

@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS RECEIVED_MESSAGE (
 	ID              VARCHAR(13)              PRIMARY KEY,  -- TSID = 메시지 ID
 	MESSAGE_KEY     VARCHAR(64)              NOT NULL,     -- 본문 SHA-256. 유일 제약 없음 (완료 1분 뒤 같은 값이 새 메시지로 올 수 있다)
 	RECEIVED_AT     TIMESTAMP WITH TIME ZONE NOT NULL,     -- 요청 도착 시각
-	CONTENT_TYPE    VARCHAR(255),
+	CONTENT_TYPE    VARCHAR(255),                          -- 길이를 바꾸면 ContentTypeLimit.MAX_LENGTH도 바꾼다 (넘으면 수신 400)
 	RAW_BODY        BLOB                     NOT NULL,     -- 받은 바이트 그대로
 	STATE           VARCHAR(20)              NOT NULL,     -- PROCESSING, COMPLETED, FAILED
 	RESPONSE_STATUS INT,

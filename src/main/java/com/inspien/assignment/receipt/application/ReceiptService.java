@@ -159,13 +159,18 @@ public class ReceiptService {
 	}
 
 	/**
-	 * 올리고 완료를 적는다. 업로드 실패만 여기서 건별 실패로 센다. 완료 기록(H2)이 실패하면 예외가 processOne으로 올라가
-	 * 주기를 끝낸다 (D-22, D-26).
+	 * 올리고 완료를 적는다. 업로드 실패만 여기서 건별 실패로 센다. 데이터 연결을 열지 못했으면(아무것도 보내지 않음)
+	 * 연결 실패로 보고 횟수 없이 주기를 끝낸다 (D-10). 완료 기록(H2)이 실패하면 예외가 processOne으로 올라가 주기를
+	 * 끝낸다 (D-22, D-26).
 	 */
 	private NextStep upload(String orderId, UploadPlan plan, byte[] content, ReceiptUploader.Session session,
 			Map<String, Long> listing) {
 		try {
 			session.upload(plan.fileName(), content);
+		}
+		catch (ReceiptUploader.ConnectionFailedException ex) {
+			this.ftp.failed(ex);
+			return NextStep.END_CYCLE;
 		}
 		catch (ReceiptUploader.UploadFailedException ex) {
 			orderFailed(orderId, plan.fileName() + " 업로드 실패: " + ex.getMessage());

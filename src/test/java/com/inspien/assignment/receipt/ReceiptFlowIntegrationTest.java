@@ -82,6 +82,7 @@ class ReceiptFlowIntegrationTest {
 	void resetFtp() {
 		this.ftp.down = false;
 		this.ftp.failUploadsContaining = null;
+		this.ftp.dataConnectionFails = false;
 	}
 
 	@Test
@@ -121,6 +122,27 @@ class ReceiptFlowIntegrationTest {
 		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
 
 		this.ftp.down = false;
+		this.receipts.runCycle();
+
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);
+		assertThat(results(ProcessEvent.Result.CONNECTION_RECOVERED)).isEqualTo(1);
+	}
+
+	@Test
+	void uploadDataConnectionFailureEndsCycleWithoutCounting() {
+		List<String> ids = receiveTwoOrders("F");
+		this.ftp.dataConnectionFails = true;
+
+		this.receipts.runCycle();
+
+		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.PENDING);
+		assertThat(this.retry.find(ids.get(0), Stage.RECEIPT)).as("횟수를 세지 않는다").isEmpty();
+		assertThat(this.retry.find(ids.get(1), Stage.RECEIPT)).isEmpty();
+		assertThat(results(ProcessEvent.Result.FAIL)).isZero();
+		assertThat(results(ProcessEvent.Result.CYCLE_SKIPPED)).isEqualTo(1);
+
+		// 백오프가 없으므로 시계를 옮기지 않아도 다음 주기에 바로 올린다
+		this.ftp.dataConnectionFails = false;
 		this.receipts.runCycle();
 
 		assertThat(receiptStatuses(ids)).containsOnly(StageStatus.DONE);

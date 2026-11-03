@@ -24,6 +24,7 @@ public interface ReceiptUploader {
 		Map<String, Long> list();
 
 		/**
+		 * @throws ConnectionFailedException 데이터 연결을 열지 못해 아무것도 보내지 못함. 주문의 문제가 아니다 (D-10)
 		 * @throws UploadFailedException 이 파일을 올리지 못함
 		 */
 		void upload(String fileName, byte[] content);
@@ -67,6 +68,15 @@ public interface ReceiptUploader {
 		 */
 		public static UploadFailedException connectionLost(Throwable cause) {
 			return new UploadFailedException(cause.getClass().getSimpleName() + " " + cause.getMessage(), true, cause);
+		}
+
+		/**
+		 * 서버가 전송 도중 끊겼다고 답했다 (426). 올리는 도중에 연결이 끊긴 것과 같게 건별 실패 1회를 세고 주기를 끝낸다.
+		 *
+		 * @param reply 서버 응답
+		 */
+		public static UploadFailedException transferAborted(String reply) {
+			return new UploadFailedException(reply, true, null);
 		}
 
 		public boolean connectionLost() {

@@ -20,6 +20,11 @@ public class FakeFtp implements ReceiptUploader {
 
 	public volatile String failUploadsContaining;
 
+	/**
+	 * 접속·목록은 되지만 업로드의 데이터 연결을 열지 못한다 (425).
+	 */
+	public volatile boolean dataConnectionFails;
+
 	public volatile int opened;
 
 	@Override
@@ -39,6 +44,9 @@ public class FakeFtp implements ReceiptUploader {
 
 			@Override
 			public void upload(String fileName, byte[] content) {
+				if (FakeFtp.this.dataConnectionFails) {
+					throw new ConnectionFailedException("FTP 데이터 연결 실패: 425 Can't open data connection.", null);
+				}
 				if (FakeFtp.this.failUploadsContaining != null && fileName.contains(FakeFtp.this.failUploadsContaining)) {
 					throw UploadFailedException.rejected("553 Could not create file.");
 				}

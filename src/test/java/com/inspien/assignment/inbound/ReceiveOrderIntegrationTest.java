@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -206,6 +207,26 @@ class ReceiveOrderIntegrationTest {
 			.andExpect(header().doesNotExist("Retry-After"))
 			.andExpect(jsonPath("$.code").value("ORDER_DB_REJECTED"))
 			.andExpect(jsonPath("$.retryable").value(false));
+	}
+
+	@Test
+	void nonDatabaseErrorWhileStoringIsInternalErrorNotDbRejection() throws Exception {
+		// DB 예외가 아닌 오류는 코드 결함일 수 있다. DB가 거절한 것으로 기록하지 않는다 (D-17)
+		doThrow(new IllegalStateException("bug")).when(this.orders).insertAll(anyList());
+
+		MvcResult failed = this.mvc.perform(post("/orders").content(sampleLike("I").getBytes(EUC_KR)))
+			.andExpect(status().isInternalServerError())
+			.andExpect(header().doesNotExist("Retry-After"))
+			.andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+			.andExpect(jsonPath("$.retryable").value(false))
+			.andReturn();
+		String messageId = JsonPath.read(failed.getResponse().getContentAsString(), "$.messageId");
+
+		this.mvc.perform(get("/tracking/messages/{id}", messageId))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.state").value("FAILED"))
+			.andExpect(jsonPath("$.data.errorCode").value("INTERNAL_ERROR"))
+			.andExpect(jsonPath("$.data.responseStatus").value(500));
 	}
 
 	@Test

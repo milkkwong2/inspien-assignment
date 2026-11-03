@@ -34,7 +34,7 @@ public enum ErrorCode {
 	/** Oracle이 저장을 거절: 길이·제약 위반, 권한 없음 등 연결·자원 계열이 아닌 오류 (D-17) */
 	ORDER_DB_REJECTED(HttpStatus.INTERNAL_SERVER_ERROR, null),
 
-	/** 예상하지 못한 서버 오류 */
+	/** 예상하지 못한 서버 오류. DB 예외가 아닌 오류로 코드 결함일 수 있다 (D-17) */
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, null),
 
 	/** 쇼핑몰 Oracle 연결·자원 장애. 결과 불명 포함 (D-17, D-19) */

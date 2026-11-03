@@ -540,6 +540,7 @@ Content-Type: application/xml; charset=EUC-KR
 | 🔴 `500` | 예상 밖 상태: 미리 배정한 번호의 행이 일부만 있거나 원본과 다름 (재처리 전 조회, 또는 PK 충돌 뒤 다시 조회한 결과, D-16·D-19) | Problem Details, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | 채번 소진 (`Z999` 초과, D-08) | Problem Details, 오류 코드 `ORDER_ID_EXHAUSTED`, `retryable: false` | 연계 담당자에게 문의 |
 | 🔴 `500` | Oracle이 저장을 거절 (값 길이 초과, NOT NULL·제약 위반, 권한 없음 등 연결·자원 계열이 아닌 오류, D-17) | Problem Details, 오류 코드 `ORDER_DB_REJECTED`, `retryable: false` | 연계 담당자에게 문의. 그대로 다시 보내면 또 `500` |
+| 🔴 `500` | 예상하지 못한 오류 (DB 예외가 아닌 오류, 코드 결함일 수 있음. D-17 2026-11-04 보완). H2에 `FAILED`로 남는다 | Problem Details, 오류 코드 `INTERNAL_ERROR`, `retryable: false` | 연계 담당자에게 문의 |
 | 🟡 `503` | Oracle 연결·자원 장애 (접속 실패, 타임아웃, 풀 연결 대기 초과, 연결 끊김, 커밋 중 타임아웃처럼 결과가 불명인 경우 포함, D-17·D-19) | Problem Details, `retryable: true`, `Retry-After` 헤더 | 같은 본문을 재전송한다. 시간 제한은 없다. 미리 배정한 주문번호로 조회한 뒤 이어서 처리된다 (D-24) |
 | 🟡 `503` | H2 사용 불가 | 위와 같음 (메시지 ID 없음) | 같은 본문을 재전송한다. 원본도 저장되지 않았으므로 처음부터 처리된다 |
 | 🟡 `503` | 수신 잠금 대기 상한 초과 (D-16) | 위와 같음 | 같은 본문을 재전송한다 |
@@ -569,12 +570,14 @@ Content-Type: application/xml; charset=EUC-KR
 | `UNEXPECTED_STATE` | `500` | false |
 | `ORDER_ID_EXHAUSTED` | `500` | false |
 | `ORDER_DB_REJECTED` | `500` | false |
+| `INTERNAL_ERROR` (예상하지 못한 오류) | `500` | false |
 | `ORDER_DB_UNAVAILABLE` | `503` | true |
 | `HISTORY_DB_UNAVAILABLE` | `503` | true (`messageId` 없음) |
 | `BUSY` (수신 잠금 대기 초과) | `503` | true |
 
 - 이 표는 코드에서 오류 코드 enum 하나(상태, `retryable`)로 옮겨진다. Problem Details와 `Retry-After`는 전역 예외 처리기 한 곳에서 만든다.
 - Oracle 오류의 `503`·`500` 구분은 연결·자원 계열 여부로 한다. 스케줄러의 연결 실패 판정(§8)과 같은 기준이다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어쓰므로 예외 타입 하나가 아니라 원인 사슬 전체를 본다(`DbFailures`). 나머지는 `ORDER_DB_REJECTED`로 둔다. PK 충돌은 이보다 먼저 "다시 조회해 비교"로 처리한다 (D-17, D-19, D-25).
+- 이 구분은 DB 예외(Spring `DataAccessException`·`TransactionException`)에만 한다. `NullPointerException` 같은 그 밖의 오류는 코드 결함일 수 있어 `ORDER_DB_REJECTED`로 적지 않고 `INTERNAL_ERROR`로 H2에 `FAILED`를 남긴다 (D-17 2026-11-04 보완).
 - 송신자가 `500`도 재전송해도 같은 `500`이 나갈 뿐 데이터는 바뀌지 않는다. 계약은 안내이고, 안전은 서버의 멱등성(D-15, D-16)이 지킨다.
 
 **알려진 한계 (D-15, D-24).** 중복은 본문 바이트와 이전 메시지의 상태로만 판단하므로 아래는 막지 못한다.
@@ -782,6 +785,7 @@ flowchart TD
     G -- 성공 --> H[H2: COMPLETED, 응답 본문 기록]:::store
     G -- "DB 연결·자원 오류<br/>결과 불명 포함" --> R3[H2: FAILED 기록<br/>503 응답 → 송신자 재전송]:::fail
     G -- "그 외 DB 오류<br/>길이·제약 위반, 권한" --> R7[H2: FAILED 기록<br/>500 ORDER_DB_REJECTED<br/>운영자 확인]:::fail
+    G -- "DB 예외가 아닌 오류<br/>코드 결함일 수 있음" --> R8[H2: FAILED 기록<br/>500 INTERNAL_ERROR<br/>운영자 확인]:::fail
     H --> R4[200 응답<br/>저장·거부·경고 목록]:::ok
 
     classDef ext fill:#e3edfb,stroke:#4a6fa5,color:#1a1a1a
@@ -1036,6 +1040,7 @@ timeline
 | 수신 | 주문 검증 실패 | 그 주문만 거부, 나머지 저장. `200`에 거부 목록 | D-07 |
 | 수신 | Oracle 연결·자원 장애 (접속 실패, 타임아웃, 풀 연결 대기 초과, 연결 끊김) | `503`. 송신자가 재전송하면 미리 배정한 주문번호로 조회 후 이어서 처리 | D-04, D-05, D-16, D-17 |
 | 수신 | Oracle이 저장을 거절 (값 길이 초과, NOT NULL·제약 위반, 권한 없음) | `500` + `ORDER_DB_REJECTED`, H2에 `FAILED`. 묶음 전체가 저장되지 않음. 운영자가 원인(검증 기준, 권한 등)을 고친 뒤 재전송하면 원본을 다시 파싱해 이어서 처리 | D-05, D-17 |
+| 수신 | 주문 저장·조회 중 DB 예외가 아닌 오류 (코드 결함일 수 있음) | `500` + `INTERNAL_ERROR`, H2에 `FAILED`, ERROR 로그에 스택. DB 거절로 적지 않는다. 고친 뒤 재전송하면 이어서 처리 | D-17 |
 | 수신 | Oracle 커밋 중 타임아웃 (결과 불명) | `503`, H2에 `FAILED` + `FAIL` 이벤트(상세 "커밋 결과 불명"). 그 연결은 버림. 재전송 때 조회로 확인 | D-19 |
 | 수신 | INSERT 중 PK 충돌 | 롤백 후 새 트랜잭션에서 다시 조회·비교. 원본과 같으면 완료 `200`, 다르면 `500` + 운영자 확인. "이미 처리됨"으로 단정하지 않는다 | D-05, D-16, D-19 |
 | 수신 | 재처리 때 미리 배정한 번호의 행이 일부만 있거나 원본과 다름 | `500`, 예상 밖 상태로 기록. 운영자 확인 | D-16 |
@@ -1056,6 +1061,7 @@ timeline
 | 영수증 | 반쪽 파일 발견 | 다음 번호 `_r{N+1}`로 재업로드. 재시도 횟수에 포함 | D-09, D-10 |
 | 영수증·배송 | 처리 후 완료 기록 전 중단 | 다음 주기에 사전 확인(FTP 목록, `SHIPMENT_TB` 조회)으로 중복 없이 완료만 기록 | D-03, D-26 |
 | 마감 | 쇼핑몰 Oracle·H2 장애 | 그 주기 종료. 다음 주기에 같은 조건으로 다시 | D-22, D-26 |
+| 영수증·배송·마감 | 주기 중 DB 예외가 아닌 오류 (코드 결함일 수 있음) | 스케줄러는 멈추지 않고 그 주기만 종료. 횟수 안 셈. DB 장애와 구분되는 ERROR 로그("예상하지 못한 오류로 … 주기를 끝냅니다")에 스택 | D-22 |
 | 마감 | N→Y 조건부 갱신 0건 (이미 `Y`) | 오류로 보지 않고 넘어감 | D-26 |
 | 영수증 | FTP 장애·영수증 `FAILED` | 영수증만 멈춤. 배송은 그대로 진행. `Y`는 영수증이 끝난 뒤 | D-26 |
 | 영수증·배송 | 상대가 응답 없이 멈춤 | 접속·전송 타임아웃으로 실패로 바꿔 위 규칙을 따른다 | D-12, D-19 |

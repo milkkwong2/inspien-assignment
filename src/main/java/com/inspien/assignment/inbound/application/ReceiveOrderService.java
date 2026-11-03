@@ -218,8 +218,11 @@ public class ReceiveOrderService {
 						"이 메시지의 주문번호로 다른 주문이 저장돼 있습니다. 연계 담당자에게 문의해 주세요.", ex);
 			};
 		}
-		catch (RuntimeException ex) {
+		catch (DataAccessException | TransactionException ex) {
 			throw oracleFailure(message, ex);
+		}
+		catch (RuntimeException ex) {
+			throw unexpectedFailure(message, ex);
 		}
 	}
 
@@ -231,8 +234,11 @@ public class ReceiveOrderService {
 		try {
 			existing = this.orders.findByIds(orderIds);
 		}
-		catch (RuntimeException ex) {
+		catch (DataAccessException | TransactionException ex) {
 			throw oracleFailure(message, ex);
+		}
+		catch (RuntimeException ex) {
+			throw unexpectedFailure(message, ex);
 		}
 		if (existing.isEmpty()) {
 			return Comparison.NONE;
@@ -250,8 +256,12 @@ public class ReceiveOrderService {
 	}
 
 	/**
-	 * 연결·자원 장애는 503(재전송하면 이어서 처리), 그 외는 Oracle이 거절한 것이라 500 (D-17, D-25).
-	 * 커밋 중 타임아웃은 결과 불명이다. 롤백됐다고 단정하지 않고 503으로 답해, 재전송 때 조회로 확인한다 (D-19).
+	 * DB 예외(DataAccessException·TransactionException)만 받는다. 연결·자원 장애는 503(재전송하면 이어서 처리), 그 외는
+	 * Oracle이 거절한 것이라 500 (D-17, D-25). 커밋 중 타임아웃은 결과 불명이다. 롤백됐다고 단정하지 않고 503으로 답해,
+	 * 재전송 때 조회로 확인한다 (D-19).
+	 *
+	 * <p>두 예외의 공통 상위 타입(NestedRuntimeException)은 DB 밖의 예외도 포함해 매개변수로 쓰지 않는다. 거르는 일은
+	 * 부르는 쪽의 catch가 한다.
 	 */
 	private ApiException oracleFailure(ReceivedMessage message, RuntimeException ex) {
 		if (DbFailures.isConnectionOrResource(ex)) {
@@ -259,6 +269,15 @@ public class ReceiveOrderService {
 					"쇼핑몰 DB에 저장하지 못했습니다. 같은 본문을 다시 보내 주세요.", ex);
 		}
 		return failed(message, ErrorCode.ORDER_DB_REJECTED, "쇼핑몰 DB가 저장을 거절했습니다. 연계 담당자에게 문의해 주세요.", ex);
+	}
+
+	/**
+	 * DB 예외가 아닌 오류(NullPointerException 등)는 코드 결함일 수 있다. DB가 거절한 것으로 적지 않고 INTERNAL_ERROR(500,
+	 * 재전송 안 함)로 기록해 담당자가 원인을 보게 한다 (D-17).
+	 */
+	private ApiException unexpectedFailure(ReceivedMessage message, RuntimeException ex) {
+		return failed(message, ErrorCode.INTERNAL_ERROR,
+				"예상하지 못한 오류로 저장하지 못했습니다. 연계 담당자에게 문의해 주세요.", ex);
 	}
 
 	/**

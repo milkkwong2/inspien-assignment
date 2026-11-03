@@ -6,7 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.event.ProcessEvent;
@@ -52,8 +54,12 @@ public class CloseService {
 				close(orderId);
 			}
 		}
-		catch (RuntimeException ex) {
+		catch (DataAccessException | TransactionException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 마감 주기를 끝냅니다. 다음 주기에 같은 조건으로 다시 찾습니다", ex);
+		}
+		catch (RuntimeException ex) {
+			log.error("예상하지 못한 오류로 마감 주기를 끝냅니다. 코드 결함일 수 있습니다. "
+					+ "다음 주기에 같은 조건으로 다시 찾습니다", ex);
 		}
 	}
 

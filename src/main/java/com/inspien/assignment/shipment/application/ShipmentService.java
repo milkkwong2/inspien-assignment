@@ -7,8 +7,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionException;
 
 import com.inspien.assignment.global.config.AppProperties;
 import com.inspien.assignment.global.error.DbFailures;
@@ -84,8 +86,12 @@ public class ShipmentService {
 			List<String> candidates = this.orders.findIdsByStatus(OrderStatus.N);
 			due = this.retry.selectDue(STAGE, candidates, this.batchSize);
 		}
-		catch (RuntimeException ex) {
+		catch (DataAccessException | TransactionException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다", ex);
+			return;
+		}
+		catch (RuntimeException ex) {
+			log.error("예상하지 못한 오류로 배송 주기를 끝냅니다. 코드 결함일 수 있습니다", ex);
 			return;
 		}
 		for (String orderId : due) {
@@ -114,8 +120,13 @@ public class ShipmentService {
 					() -> this.numbering.next(IdSequence.SHIPMENT));
 			return register(Shipment.of(shipmentId, found.get()));
 		}
-		catch (RuntimeException ex) {
+		catch (DataAccessException | TransactionException ex) {
 			log.error("쇼핑몰 DB 또는 H2 장애로 배송 주기를 끝냅니다. 다음 주기에 사전 확인으로 이어서 처리합니다", ex);
+			return NextStep.END_CYCLE;
+		}
+		catch (RuntimeException ex) {
+			log.error("예상하지 못한 오류로 배송 주기를 끝냅니다. 코드 결함일 수 있습니다. "
+					+ "다음 주기에 사전 확인으로 이어서 처리합니다", ex);
 			return NextStep.END_CYCLE;
 		}
 		finally {

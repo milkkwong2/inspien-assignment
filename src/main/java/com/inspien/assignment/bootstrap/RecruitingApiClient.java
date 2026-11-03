@@ -26,8 +26,6 @@ public final class RecruitingApiClient {
 
 	private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
-	private static final int MAX_ERROR_BODY_LENGTH = 500;
-
 	private final HttpClient httpClient;
 
 	private final Duration requestTimeout;
@@ -45,6 +43,7 @@ public final class RecruitingApiClient {
 
 	/**
 	 * @return 응답 본문 (2xx일 때만)
+	 * @throws RecruitingApiErrorException 2xx가 아닐 때. 본문은 예외에 담고 메시지에는 넣지 않는다
 	 */
 	public String requestConnectionInfo(BootstrapInput input) {
 		return requestConnectionInfo(URI.create(input.apiUrl()), input);
@@ -63,7 +62,7 @@ public final class RecruitingApiClient {
 			.build();
 		HttpResponse<String> response = send(request);
 		if (response.statusCode() / 100 != 2) {
-			throw new BootstrapException("과제 API 응답 오류: HTTP " + response.statusCode() + "\n  " + truncate(response.body()));
+			throw new RecruitingApiErrorException(response.statusCode(), response.body());
 		}
 		return response.body();
 	}
@@ -96,13 +95,6 @@ public final class RecruitingApiClient {
 	private static String basicAuth(String username, String password) {
 		String credentials = username + ":" + password;
 		return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-	}
-
-	private static String truncate(String body) {
-		if (body == null) {
-			return "";
-		}
-		return (body.length() <= MAX_ERROR_BODY_LENGTH) ? body : body.substring(0, MAX_ERROR_BODY_LENGTH) + "...";
 	}
 
 }

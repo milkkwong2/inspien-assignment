@@ -20,6 +20,8 @@ public final class BootstrapStore {
 
 	static final String SAMPLE_ORDER = "sample-order.xml";
 
+	static final String ERROR_RESPONSE = "raw-error-response.txt";
+
 	private final Path dir;
 
 	public BootstrapStore(Path dir) {
@@ -36,6 +38,10 @@ public final class BootstrapStore {
 
 	public Path sampleOrderPath() {
 		return this.dir.resolve(SAMPLE_ORDER);
+	}
+
+	public Path errorResponsePath() {
+		return this.dir.resolve(ERROR_RESPONSE);
 	}
 
 	/**
@@ -78,6 +84,13 @@ public final class BootstrapStore {
 
 	public void saveSampleOrder(byte[] eucKrXml) {
 		write(sampleOrderPath(), eucKrXml, true);
+	}
+
+	/**
+	 * 오류 응답 본문. 원본 응답과 달리 실패는 반복될 수 있으므로 마지막 본문으로 덮어쓴다.
+	 */
+	public void saveErrorResponse(String body) {
+		write(errorResponsePath(), body.getBytes(StandardCharsets.UTF_8), true);
 	}
 
 	private void write(Path target, byte[] content, boolean overwrite) {

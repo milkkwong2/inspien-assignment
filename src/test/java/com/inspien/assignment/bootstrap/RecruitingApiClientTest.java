@@ -1,11 +1,15 @@
 package com.inspien.assignment.bootstrap;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
@@ -15,6 +19,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -25,6 +30,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 실제 과제 API 대신 로컬 HTTP 서버로 요청 형식과 오류 처리를 검증한다.
  */
 class RecruitingApiClientTest {
+
+	/** 서버가 보낸 값을 되돌려주는 오류 본문 (개인정보가 섞일 수 있음) */
+	private static final String ERROR_BODY = "{\"error\":\"Unauthorized\",\"PHONE_NUMBER\":\"010-1234-5678\"}";
 
 	private HttpServer server;
 
@@ -60,13 +68,37 @@ class RecruitingApiClientTest {
 	}
 
 	@Test
-	void failsOnNon2xxWithStatusCode() {
-		respondWith(401, "Unauthorized", Duration.ZERO);
+	void failsOnNon2xxWithStatusCodeButWithoutBody() {
+		respondWith(401, ERROR_BODY, Duration.ZERO);
 
 		assertThatThrownBy(() -> call(new RecruitingApiClient()))
-			.isInstanceOf(BootstrapException.class)
+			.isInstanceOfSatisfying(RecruitingApiErrorException.class,
+					(ex) -> assertThat(ex.body()).isEqualTo(ERROR_BODY))
 			.hasMessageContaining("HTTP 401")
-			.hasMessageContaining("Unauthorized");
+			.message()
+			.doesNotContain("Unauthorized", "010-1234-5678");
+	}
+
+	/**
+	 * 오류 본문은 파일에만 남고, 화면(예외 메시지와 콘솔)에는 상태 코드와 파일 경로만 나온다.
+	 */
+	@Test
+	void errorBodyIsSavedToFileNotPrinted(@TempDir Path dir) throws IOException {
+		respondWith(500, ERROR_BODY, Duration.ZERO);
+		BootstrapStore store = new BootstrapStore(dir);
+		ByteArrayOutputStream console = new ByteArrayOutputStream();
+		RecruitingApiClient client = new RecruitingApiClient();
+		BootstrapProcess process = new BootstrapProcess(input(), store, (in) -> client.requestConnectionInfo(uri(), in),
+				new PrintStream(console, true, StandardCharsets.UTF_8));
+
+		assertThatThrownBy(() -> process.run(BootstrapProcess.Mode.FETCH)).isInstanceOf(BootstrapException.class)
+			.hasMessageContaining("HTTP 500")
+			.hasMessageContaining(store.errorResponsePath().toString())
+			.message()
+			.doesNotContain("Unauthorized", "010-1234-5678");
+		assertThat(console.toString(StandardCharsets.UTF_8)).doesNotContain("Unauthorized", "010-1234-5678");
+		assertThat(Files.readString(store.errorResponsePath())).isEqualTo(ERROR_BODY);
+		assertThat(store.rawResponsePath()).doesNotExist();
 	}
 
 	@Test
@@ -79,8 +111,11 @@ class RecruitingApiClientTest {
 	}
 
 	private String call(RecruitingApiClient client) {
-		URI uri = URI.create("http://localhost:" + this.server.getAddress().getPort() + "/http/RecruitingTest");
-		return client.requestConnectionInfo(uri, input());
+		return client.requestConnectionInfo(uri(), input());
+	}
+
+	private URI uri() {
+		return URI.create("http://localhost:" + this.server.getAddress().getPort() + "/http/RecruitingTest");
 	}
 
 	private static BootstrapInput input() {

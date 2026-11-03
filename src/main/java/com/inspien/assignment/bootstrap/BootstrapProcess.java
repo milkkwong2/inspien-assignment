@@ -45,7 +45,7 @@ public final class BootstrapProcess {
 		if (mode == Mode.FETCH) {
 			this.store.ensureNoRawResponse();
 			this.out.println("과제 API 호출: " + this.input.apiUrl());
-			String body = this.apiCall.apply(this.input);
+			String body = callApi();
 			this.store.saveRawResponse(body);
 			this.out.println("원본 응답 저장: " + this.store.rawResponsePath());
 		}
@@ -55,6 +55,19 @@ public final class BootstrapProcess {
 		this.store.saveSampleOrder(result.sampleOrder());
 		printSummary(result);
 		return result;
+	}
+
+	/**
+	 * 오류 응답 본문은 개인정보나 서버 내부 정보를 담을 수 있어 출력하지 않고, 파일로 남긴 뒤 경로만 알린다.
+	 */
+	private String callApi() {
+		try {
+			return this.apiCall.apply(this.input);
+		}
+		catch (RecruitingApiErrorException ex) {
+			this.store.saveErrorResponse(ex.body());
+			throw new BootstrapException(ex.getMessage() + "\n  응답 본문 저장: " + this.store.errorResponsePath(), ex);
+		}
 	}
 
 	/**

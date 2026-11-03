@@ -56,6 +56,17 @@ class BootstrapStoreTest {
 	}
 
 	@Test
+	void overwritesErrorResponseBecauseFailuresRepeat() throws IOException {
+		BootstrapStore store = new BootstrapStore(this.dir);
+
+		store.saveErrorResponse("first error");
+		store.saveErrorResponse("second error");
+
+		assertThat(Files.readString(store.errorResponsePath())).isEqualTo("second error");
+		store.ensureNoRawResponse();
+	}
+
+	@Test
 	void leavesNoTemporaryFiles() throws IOException {
 		BootstrapStore store = new BootstrapStore(this.dir);
 

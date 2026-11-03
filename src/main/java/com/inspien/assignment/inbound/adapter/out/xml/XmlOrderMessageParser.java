@@ -30,8 +30,11 @@ import com.inspien.assignment.inbound.domain.OrderMessage;
  * 주문 XML 파서 (D-20).
  *
  * <pre>
- * 받은 바이트 → 인코딩 결정·엄격 디코딩 → 맨 앞 선언 제거 → &lt;ROOT&gt;…&lt;/ROOT&gt; → DOM 파싱
+ * 받은 바이트 → 인코딩 결정·엄격 디코딩 → 맨 앞 선언 제거 → 비었으면 거절 → &lt;ROOT&gt;…&lt;/ROOT&gt; → DOM 파싱
  * </pre>
+ *
+ * BOM·선언을 지우고 공백만 남은 본문도 빈 본문이다. 요소는 있는데 HEADER·ITEM이 없는 본문은 형식이 맞으므로 0건으로
+ * 처리한다.
  *
  * 송신자는 선언·루트 없이 &lt;HEADER&gt;·&lt;ITEM&gt;을 나열해 보낸다. HEADER·ITEM은 감싼 루트 바로 아래에서만 찾는다.
  * 깊이와 상관없이 찾으면 ITEM 안에 끼어든 &lt;HEADER&gt;도 주문으로 읽힌다.
@@ -82,6 +85,10 @@ class XmlOrderMessageParser implements OrderMessageParser {
 	@Override
 	public OrderMessage parse(byte[] body, String contentType) {
 		String text = this.decoder.decode(body, contentType);
+		if (text.isBlank()) {
+			// 감싸면 빈 루트가 되어 0건 성공(200)으로 읽힌다. 빈 본문은 첨부 누락 같은 송신자 실수라 거절한다
+			throw new MessageParseException("본문이 비어 있습니다. HEADER·ITEM을 담아 보내 주세요.");
+		}
 		Element root = parseWrapped(text).getDocumentElement();
 		List<OrderMessage.Header> headers = new ArrayList<>();
 		List<OrderMessage.Item> items = new ArrayList<>();

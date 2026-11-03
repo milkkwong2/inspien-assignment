@@ -152,6 +152,36 @@ class XmlOrderMessageParserTest {
 		assertThat(message.items()).hasSize(1);
 	}
 
+	/**
+	 * 감싸면 빈 루트가 되어 0건 성공으로 읽히던 본문. 송신자 실수라 파싱 실패로 거절한다.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "", " \r\n\t ", "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" })
+	void emptyWhitespaceOrDeclarationOnlyBodyIsRejected(String body) {
+		assertThatThrownBy(() -> this.parser.parse(body.getBytes(StandardCharsets.UTF_8), null))
+			.isInstanceOf(MessageParseException.class)
+			.hasMessageContaining("본문이 비어 있습니다");
+	}
+
+	@Test
+	void bomOnlyBodyIsRejected() {
+		byte[] bom = { (byte) 0xEF, (byte) 0xBB, (byte) 0xBF };
+
+		assertThatThrownBy(() -> this.parser.parse(bom, null)).isInstanceOf(MessageParseException.class)
+			.hasMessageContaining("본문이 비어 있습니다");
+	}
+
+	/**
+	 * 형식은 맞고 주문만 없는 본문은 빈 본문과 달리 0건으로 처리한다.
+	 */
+	@Test
+	void bodyWithoutHeaderOrItemIsReadAsNoOrders() {
+		OrderMessage message = this.parser.parse("<UNKNOWN>무시</UNKNOWN>".getBytes(EUC_KR), null);
+
+		assertThat(message.headers()).isEmpty();
+		assertThat(message.items()).isEmpty();
+	}
+
 	@Test
 	void blankOrMissingValuesAreNull() {
 		OrderMessage message = this.parser

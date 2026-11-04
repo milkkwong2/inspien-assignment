@@ -252,6 +252,7 @@ receipt
 | Service | `application`: 흐름은 `…Facade`, DB 하나의 트랜잭션은 `…Service` (아래 규약) |
 | Repository | 포트(`application/port`) + 그 구현(`adapter/out/…`). Spring Data 리포지토리와 JPA 엔티티는 구현 안쪽에 숨는다 |
 
+- 어댑터 이름은 `<기술><포트>`다: `JpaOrderStore`, `JpaStageStore`, `H2SequenceStore`, `XmlOrderMessageParser`, `CsvReceiptFormatter`, `FtpReceiptUploader`. 이름만 보고 어느 포트를 무엇으로 구현했는지 안다.
 - 의존 규칙: `adapter` → `application` → `domain`. 다른 도메인은 `application`으로만 부른다. ArchUnit 테스트로 강제한다 (D-21).
 - 도메인 사이 화살표는 위 그림에 있는 것만 허용한다. 같은 허용 목록을 ArchUnit 테스트에 두어, 그림에 없는 의존이 생기면 테스트가 실패한다. 그림을 바꿀 때는 그 목록도 함께 바꾼다 (D-21).
 - 포트는 바깥 시스템(쇼핑몰 Oracle, 운송 Oracle, FTP, H2)과 바깥 형식 변환기(수신 본문 파서, 영수증 CSV 변환기)에만 둔다. 내부 서비스는 인터페이스 없이 클래스다.
@@ -480,7 +481,7 @@ DataSource가 3개라 엔티티 매니저와 트랜잭션 매니저도 3개다 (
 > [!IMPORTANT]
 > 기본 매니저(`@Primary`)를 두지 않는다. 이름 없이 쓴 `@Transactional`이 조용히 다른 DB로 가지 않고, 호출할 때 오류로 드러난다.
 
-- 엔티티·리포지토리는 각 도메인의 `adapter/out/persistence`에 있고, `global`의 DB별 설정이 그 패키지들을 `@EnableJpaRepositories`로 나열해 각 매니저에 연결한다. H2는 `inbound`, `numbering`, `stage`, `tracking`이 함께 쓴다 (D-21).
+- 엔티티·리포지토리는 각 도메인의 `adapter/out/persistence`에 있고, `global`의 DB별 설정이 그 패키지들을 엔티티 매니저의 스캔 대상으로 나열해 각 매니저에 연결한다. H2는 `inbound`, `numbering`, `stage`, `tracking`이 함께 쓴다 (D-21). Spring Data 리포지토리는 H2의 `inbound`에만 있어 `@EnableJpaRepositories`는 H2 설정에만 둔다. 나머지 쿼리는 QueryDSL이다 (D-01).
 - 수신 흐름은 짧은 트랜잭션 세 개(H2 원본 저장·채번 → Oracle INSERT → H2 완료 기록)로 나누고, 이를 묶는 `ReceiveOrderFacade`에는 트랜잭션을 걸지 않는다. 수신 잠금은 그 바깥에 건다 (D-16).
 - **구현 주의:** `@Primary`가 없으면 Spring Boot의 JPA 자동 설정이 빠진다. 엔티티 매니저 3개를 직접 구성하고 각각에 `ddl-auto=none` 등 Hibernate 속성을 명시한다. QueryDSL `JPAQueryFactory`도 DB별로 만든다. 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않으므로 경계는 별도 빈(`…Service`)으로 나눈다 (D-19, §3 Facade / Service 규약).
 

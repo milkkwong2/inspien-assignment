@@ -7,9 +7,11 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
 import com.inspien.assignment.stage.application.port.StageStore;
@@ -22,8 +24,16 @@ import com.inspien.assignment.stage.domain.StageState;
 @Repository
 class JpaStageStore implements StageStore {
 
+	private static final QOrderStageEntity orderStage = QOrderStageEntity.orderStageEntity;
+
 	@PersistenceContext(unitName = "history")
 	private EntityManager em;
+
+	private final JPAQueryFactory query;
+
+	JpaStageStore(@Qualifier("historyQueryFactory") JPAQueryFactory query) {
+		this.query = query;
+	}
 
 	@Override
 	public Optional<StageState> find(String orderId, Stage stage) {
@@ -37,12 +47,9 @@ class JpaStageStore implements StageStore {
 		if (orderIds.isEmpty()) {
 			return Map.of();
 		}
-		return this.em
-			.createQuery("select s from OrderStageEntity s where s.stage = :stage and s.orderId in :ids",
-					OrderStageEntity.class)
-			.setParameter("stage", stage.name())
-			.setParameter("ids", orderIds)
-			.getResultList()
+		return this.query.selectFrom(orderStage)
+			.where(orderStage.stage.eq(stage.name()), orderStage.orderId.in(orderIds))
+			.fetch()
 			.stream()
 			.map(JpaStageStore::toModel)
 			.collect(Collectors.toMap(StageState::orderId, Function.identity()));
@@ -67,13 +74,14 @@ class JpaStageStore implements StageStore {
 	@Override
 	public boolean restartIfFailed(String orderId, Stage stage) {
 		// 벌크 UPDATE는 엔티티 콜백을 거치지 않으므로 UPDATED_AT을 직접 넣는다 (D-27)
-		return this.em
-			.createQuery("update OrderStageEntity s set s.attempts = 0, s.reachedFailed = false, s.nextAttemptAt = null,"
-					+ " s.updatedAt = :now where s.orderId = :orderId and s.stage = :stage and s.reachedFailed = true")
-			.setParameter("now", OffsetDateTime.now())
-			.setParameter("orderId", orderId)
-			.setParameter("stage", stage.name())
-			.executeUpdate() == 1;
+		return this.query.update(orderStage)
+			.set(orderStage.attempts, 0)
+			.set(orderStage.reachedFailed, false)
+			.setNull(orderStage.nextAttemptAt)
+			.set(orderStage.updatedAt, OffsetDateTime.now())
+			.where(orderStage.orderId.eq(orderId), orderStage.stage.eq(stage.name()),
+					orderStage.reachedFailed.isTrue())
+			.execute() == 1;
 	}
 
 	private static StageState toModel(OrderStageEntity entity) {

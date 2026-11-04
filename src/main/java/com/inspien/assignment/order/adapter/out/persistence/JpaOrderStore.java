@@ -22,7 +22,7 @@ import com.inspien.assignment.order.domain.OrderStatus;
  * 있으면 UPDATE해 PK 충돌 없이 덮어쓴다 (설계서 §4.1). @Repository라 예외가 Spring 예외로 바뀐다.
  */
 @Repository
-class OrderStoreAdapter implements OrderStore {
+class JpaOrderStore implements OrderStore {
 
 	private static final QOrderEntity order = QOrderEntity.orderEntity;
 
@@ -31,7 +31,7 @@ class OrderStoreAdapter implements OrderStore {
 
 	private final JPAQueryFactory query;
 
-	OrderStoreAdapter(@Qualifier("orderQueryFactory") JPAQueryFactory query) {
+	JpaOrderStore(@Qualifier("orderQueryFactory") JPAQueryFactory query) {
 		this.query = query;
 	}
 
@@ -55,7 +55,7 @@ class OrderStoreAdapter implements OrderStore {
 			.orderBy(order.orderId.asc())
 			.fetch()
 			.stream()
-			.map(OrderStoreAdapter::toModel)
+			.map(JpaOrderStore::toModel)
 			.toList();
 	}
 
@@ -65,7 +65,7 @@ class OrderStoreAdapter implements OrderStore {
 			.where(order.orderId.eq(orderId))
 			.fetchOne();
 		return Optional.ofNullable(found)
-			.map(OrderStoreAdapter::toModel);
+			.map(JpaOrderStore::toModel);
 	}
 
 	@Override

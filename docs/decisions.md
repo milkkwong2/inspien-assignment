@@ -10,7 +10,7 @@
 
 | # | 결정 | 한 줄 근거 | 고르지 않은 것 |
 |---|---|---|---|
-| D-01 | DB 접근은 JPA + QueryDSL | 공용 테이블에서 `APPLICANT_KEY` 조건 누락을 구조로 막는다 | Criteria API, Jakarta Data |
+| D-01 | DB 접근은 JPA + QueryDSL (→ 2026-11-04 보완: H2 어댑터의 JPQL 문자열도 QueryDSL로) | 공용 테이블에서 `APPLICANT_KEY` 조건 누락을 구조로 막는다 | Criteria API, Jakarta Data |
 | D-02 | 쇼핑몰 DB와 운송회사 DB를 DataSource 둘로 분리 | 서로 다른 시스템을 연계한다는 EAI 구조를 코드에 드러낸다 | DataSource 하나 |
 | D-03 | 정합성은 멱등성 + 상태 기반 재처리. 배송 번호는 미리 배정해 재시도에 재사용 (→ 2026-11-01 보완, D-26 변경) | 두 DB와 FTP는 한 트랜잭션으로 묶을 수 없다. 다시 해도 결과가 같게 만든다. 결과를 모르면 같은 식별자로 다시 시도한다 | 분산 트랜잭션(XA), 보상 트랜잭션 |
 | D-04 | 수신은 원본 H2 보존 + 쇼핑몰 DB 동기 저장 (→ D-17 변경, D-20 보완, D-26 변경) | 작업 큐는 `ORDER_TB.STATUS` 한 곳, H2는 이력. 재시도는 송신자 몫 | Store-and-Forward |
@@ -151,7 +151,7 @@ flowchart LR
 
 ### D-01. DB 접근: Spring Data JPA + QueryDSL (OpenFeign 포크)
 
-- **상태:** 결정 (2026-10-30). **2026-11-01 D-25로 보완:** `@TenantId`가 복합 PK 구성 컬럼에서 동작함을 확인했다. `APPLICANT_KEY`는 `@TenantId`로 강제한다.
+- **상태:** 결정 (2026-10-30). **2026-11-01 D-25로 보완:** `@TenantId`가 복합 PK 구성 컬럼에서 동작함을 확인했다. `APPLICANT_KEY`는 `@TenantId`로 강제한다. **2026-11-04 보완:** H2 어댑터(`JpaStageStore`·`JpaEventStore`)에 남아 있던 JPQL 문자열도 QueryDSL로 바꿨다. 문자열 쿼리는 필드 이름·타입 실수가 실행해야 드러나, 위 근거 2(컴파일 시점 검증)를 H2 쪽에서만 놓치고 있었다. Spring Data 리포지토리는 수신(`inbound`)의 단순 조회 두 곳(`ReceivedMessageRepository`·`MessageOrderRepository`)만 남는다(아래 표의 "단순 조회에는 함께 써도 된다"). 그래서 리포지토리가 없는 두 Oracle 설정에서는 `@EnableJpaRepositories`를 뺐다. 엔티티는 엔티티 매니저의 스캔 대상 패키지로 찾는다. 채번 시퀀스(`H2SequenceStore`)는 DDL이라 네이티브 SQL 그대로다(네이티브 금지는 Oracle 어댑터만, D-25). 어댑터 이름도 `<기술><포트>`로 맞췄다: `OrderStoreAdapter` → `JpaOrderStore`, `ShipmentStoreAdapter` → `JpaShipmentStore`.
 - **의존성:** `spring-boot-starter-data-jpa`, `io.github.openfeign.querydsl` (jpa 모듈 + annotation processor). 기존 `spring-boot-starter-jdbc`를 대체한다.
 
 **배경.** 과제 DB는 지원자 공용 계정으로 보인다 (requirements §4.1). 모든 조회·수정에 `APPLICANT_KEY = 내 키` 조건이 들어가야 하는데, DELETE 권한이 없어서 실수로 남의 행을 건드리면 되돌릴 수 없다.

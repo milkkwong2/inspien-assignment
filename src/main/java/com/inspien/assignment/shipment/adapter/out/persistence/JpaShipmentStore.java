@@ -18,7 +18,7 @@ import com.inspien.assignment.shipment.domain.Shipment;
  * 덮어쓰지 않는다.
  */
 @Repository
-class ShipmentStoreAdapter implements ShipmentStore {
+class JpaShipmentStore implements ShipmentStore {
 
 	private static final QShipmentEntity shipment = QShipmentEntity.shipmentEntity;
 
@@ -27,7 +27,7 @@ class ShipmentStoreAdapter implements ShipmentStore {
 
 	private final JPAQueryFactory query;
 
-	ShipmentStoreAdapter(@Qualifier("shipmentQueryFactory") JPAQueryFactory query) {
+	JpaShipmentStore(@Qualifier("shipmentQueryFactory") JPAQueryFactory query) {
 		this.query = query;
 	}
 
@@ -39,7 +39,7 @@ class ShipmentStoreAdapter implements ShipmentStore {
 			.fetch()
 			.stream()
 			.findFirst()
-			.map(ShipmentStoreAdapter::toModel);
+			.map(JpaShipmentStore::toModel);
 	}
 
 	@Override
@@ -48,7 +48,7 @@ class ShipmentStoreAdapter implements ShipmentStore {
 			.where(shipment.shipmentId.eq(shipmentId))
 			.fetchOne();
 		return Optional.ofNullable(found)
-			.map(ShipmentStoreAdapter::toModel);
+			.map(JpaShipmentStore::toModel);
 	}
 
 	@Override

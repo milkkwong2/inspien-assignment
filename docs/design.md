@@ -229,7 +229,7 @@ flowchart LR
 - 초록은 연계 흐름(IF-01~04), 보라는 흐름들이 함께 쓰는 핵심이다. 도메인 사이 화살표는 상대의 `application` 서비스 호출이다.
 - `receipt`와 `shipment` 사이에는 화살표가 없다. 서로를 모르고 각자 H2에 자기 단계의 완료를 적는다. 두 단계가 모두 끝났는지는 `order`의 마감 스케줄러만 본다 (D-26).
 - 영수증·배송은 수신일시와 수신 기록 유무를 `inbound`의 서비스로 읽는다. 조회 API(`tracking`)도 주문을 실어 온 메시지 ID·수신 시각과 메시지 상세·목록을 같은 서비스로 읽는다. `RECEIVED_MESSAGE`·`MESSAGE_ORDER`는 `inbound`가 맡고, `inbound`는 이들을 모른다. 처리 이벤트를 Spring 이벤트로 발행하는 것도 `inbound` → `tracking` 호출로 순환이 생기지 않게 하려는 것이다 (D-13, D-21).
-- 채번기는 시작할 때 두 Oracle의 최댓값을 포트 `IssuedIdReader`로 읽고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다(점선, `shipment`는 이미 화살표가 있어 생략). 채번기가 `shipment`를 부르면 서로 부르는 순환이 되기 때문이다 (D-21).
+- 채번기는 시작할 때 두 Oracle의 최댓값을 포트 `IssuedIdReader`로 읽고, `order`의 `OrderService`와 `shipment`의 `ShipmentRecordService`가 각각 구현한다(점선, `shipment`는 이미 화살표가 있어 생략). 채번기가 `shipment`를 부르면 서로 부르는 순환이 되기 때문이다 (D-21).
 - `cycle`은 세 스케줄러(영수증·배송·마감)가 함께 쓰는 주기 도구다. `global`만 의존하고 도메인을 모른다. 그래서 연결 상태가 남기는 이벤트의 구간도 `stage`의 단계가 아니라 `global`의 `EventStage`로 받는다 (D-21).
 - `global`(응답·오류·설정)과 `bootstrap`은 그림에서 뺐다.
 
@@ -238,7 +238,7 @@ flowchart LR
 ```
 receipt
 ├─ domain            Receipt: CSV 내용, 파일명 규칙 (순수 Java)
-├─ application       ReceiptService (처리 흐름, 트랜잭션 경계)
+├─ application       ReceiptFacade (처리 흐름, 트랜잭션 없음)
 │  └─ port           ReceiptUploader (바깥에 요구하는 인터페이스)
 └─ adapter
    ├─ in/scheduler   ReceiptScheduler
@@ -248,13 +248,28 @@ receipt
 | 전통 계층 | 이 구조 |
 |---|---|
 | Controller | `adapter/in/web`, 스케줄러는 `adapter/in/scheduler` |
-| Service | `application` |
+| Service | `application`: 흐름은 `…Facade`, DB 하나의 트랜잭션은 `…Service` (아래 규약) |
 | Repository | 포트(`application/port`) + 그 구현(`adapter/out/…`). Spring Data 리포지토리와 JPA 엔티티는 구현 안쪽에 숨는다 |
 
 - 의존 규칙: `adapter` → `application` → `domain`. 다른 도메인은 `application`으로만 부른다. ArchUnit 테스트로 강제한다 (D-21).
 - 도메인 사이 화살표는 위 그림에 있는 것만 허용한다. 같은 허용 목록을 ArchUnit 테스트에 두어, 그림에 없는 의존이 생기면 테스트가 실패한다. 그림을 바꿀 때는 그 목록도 함께 바꾼다 (D-21).
 - 포트는 바깥 시스템(쇼핑몰 Oracle, 운송 Oracle, FTP, H2, 수신 본문 파서)에만 둔다. 내부 서비스는 인터페이스 없이 클래스다.
 - `APPLICANT_KEY`는 Oracle 어댑터가 모든 쿼리 조건과 INSERT 값에 붙인다. 서비스와 정규 모델은 이 값을 모른다 (D-01, D-21).
+
+**Facade / Service 규약 (D-19, D-21 6번, D-25).** `application`의 클래스는 이름으로 역할을 나눈다. DB 셋은 한 트랜잭션으로 묶을 수 없어, 흐름을 지휘하는 쪽과 DB 하나의 짧은 트랜잭션을 거는 쪽이 따로다.
+
+| | `…Facade` (흐름 지휘) | `…Service` (DB 하나의 짧은 트랜잭션) |
+|---|---|---|
+| 맡는 것 | 쓰임새 하나의 흐름. 여러 DB의 Service, 바깥 포트(FTP, 파서), 이벤트를 차례로 부르고 업무 판단을 한다. Spring DB 예외를 트랜잭션 밖에서 받아 나눈다 (D-25) | DB 하나를 그 DB의 포트로 읽고 쓴다 |
+| 트랜잭션 | 걸지 않는다 | 메서드마다 그 DB의 애너테이션. 한 클래스에 `@OrderTx`·`@ShipmentTx`·`@HistoryTx` 중 하나만 |
+| 부르는 쪽 | 컨트롤러, 스케줄러 | Facade, 다른 도메인 |
+| 부르는 것 | Service, 바깥 포트, 이벤트, 부품 | 자기 DB의 포트와 같은 DB의 Service(채번처럼 한 트랜잭션에 묶일 것). Facade와 FTP 같은 느린 바깥 호출은 부르지 않는다 |
+| 지금 있는 것 | `ReceiveOrderFacade`, `ReceiptFacade`, `ShipmentFacade`, `CloseFacade`, `TrackingQueryFacade`, `OperationsFacade`, `NumberingSyncFacade` | 쇼핑몰 `OrderService`, 운송 `ShipmentRecordService`, H2 `ReceivedMessageService`·`InboundQueryService`·`NumberingService`·`StageService`·`EventRecordService`·`EventQueryService` |
+
+- 둘 다 아닌 부품(`CycleRunner`, `ConnectionWatch`, `StageFailures`, `StageEvents`, `MessageLocks`, `ProcessEvents`)은 트랜잭션 없이 Facade가 쓰고 이름을 그대로 둔다.
+- 들어오는 쪽 가운데 처리 이벤트 리스너(`EventRecordService`)는 트랜잭션 하나만 부르는 진입점이라 Service를 바로 부른다. 지휘할 흐름이 없다.
+- 기동 때 채번 동기화는 `NumberingSyncFacade`가 지휘한다. 두 Oracle에서 이미 쓴 번호를 채번기 포트 `IssuedIdReader`로 읽는데, 구현이 `OrderService`·`ShipmentRecordService`라 각 Oracle의 읽기 전용 트랜잭션에서 읽힌다. H2 트랜잭션은 시퀀스를 올리는 `NumberingService.raiseNextTo` 동안만 열린다. `IssuedIdReader`는 저장소 포트가 아니라, 채번기가 `order`·`shipment`를 모르게 의존을 뒤집은 도메인 사이 포트다 (D-21).
+- 이름과 위 규칙(Facade에 트랜잭션 없음, 트랜잭션 클래스는 DB 하나의 Service, Service → Facade 금지, 트랜잭션 안에서 FTP 금지, Facade는 저장소 포트를 직접 쓰지 않음, 컨트롤러·스케줄러는 Facade로)은 ArchUnit 테스트로 강제한다.
 
 ## 4. 데이터
 
@@ -465,8 +480,8 @@ DataSource가 3개라 엔티티 매니저와 트랜잭션 매니저도 3개다 (
 > 기본 매니저(`@Primary`)를 두지 않는다. 이름 없이 쓴 `@Transactional`이 조용히 다른 DB로 가지 않고, 호출할 때 오류로 드러난다.
 
 - 엔티티·리포지토리는 각 도메인의 `adapter/out/persistence`에 있고, `global`의 DB별 설정이 그 패키지들을 `@EnableJpaRepositories`로 나열해 각 매니저에 연결한다. H2는 `inbound`, `numbering`, `stage`, `tracking`이 함께 쓴다 (D-21).
-- 수신 흐름은 짧은 트랜잭션 세 개(H2 원본 저장·채번 → Oracle INSERT → H2 완료 기록)로 나누고, 이를 묶는 수신 서비스에는 트랜잭션을 걸지 않는다. 수신 잠금은 그 바깥에 건다 (D-16).
-- **구현 주의:** `@Primary`가 없으면 Spring Boot의 JPA 자동 설정이 빠진다. 엔티티 매니저 3개를 직접 구성하고 각각에 `ddl-auto=none` 등 Hibernate 속성을 명시한다. QueryDSL `JPAQueryFactory`도 DB별로 만든다. 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않으므로 경계는 별도 빈으로 나눈다 (D-19).
+- 수신 흐름은 짧은 트랜잭션 세 개(H2 원본 저장·채번 → Oracle INSERT → H2 완료 기록)로 나누고, 이를 묶는 `ReceiveOrderFacade`에는 트랜잭션을 걸지 않는다. 수신 잠금은 그 바깥에 건다 (D-16).
+- **구현 주의:** `@Primary`가 없으면 Spring Boot의 JPA 자동 설정이 빠진다. 엔티티 매니저 3개를 직접 구성하고 각각에 `ddl-auto=none` 등 Hibernate 속성을 명시한다. QueryDSL `JPAQueryFactory`도 DB별로 만든다. 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않으므로 경계는 별도 빈(`…Service`)으로 나눈다 (D-19, §3 Facade / Service 규약).
 
 ## 5. 인터페이스 명세
 
@@ -918,7 +933,7 @@ flowchart LR
 - ②를 ③보다 먼저 한다. 100건을 먼저 자르고 거르면, 그 100건이 모두 백오프 중이거나 `FAILED`·`DONE`일 때 뒤의 정상 주문이 계속 기다린다 (D-12).
 - 재처리 API가 표시와 다음 시도 시각을 함께 지우므로, 재처리한 주문은 다음 주기에 바로 대상이 된다. 예전의 "되돌림 감지"는 필요 없다 (D-26).
 - 한 주문의 실패가 다른 주문을 막지 않는다. 단, 연결이 끊기거나 쇼핑몰 Oracle·H2가 안 되면 남은 주문은 처리하지 않고 그 주기를 끝낸다. 같은 이유로 모두 실패하기 때문이다 (D-22).
-- 주기를 끝내는 기준(대상 조회·주문 처리 중 DB 장애, 예상하지 못한 오류)과 그 로그는 세 스케줄러가 함께 쓰는 `cycle` 패키지의 `CycleRunner` 한 곳에 둔다. 각 서비스에는 주문 하나의 처리만 남는다.
+- 주기를 끝내는 기준(대상 조회·주문 처리 중 DB 장애, 예상하지 못한 오류)과 그 로그는 세 스케줄러가 함께 쓰는 `cycle` 패키지의 `CycleRunner` 한 곳에 둔다. 각 Facade에는 주문 하나의 처리만 남는다.
 - H2에 수신 기록(`MESSAGE_ORDER`)이 없는 주문은 재시도 없이 바로 그 단계에 "사람이 확인" 표시를 남긴다. 수신일시를 지어내지 않고, 복구는 운영자가 한다 (D-22).
 - FTP 연결은 주기당 1회, 처리할 주문이 있을 때만 맺는다. 파일마다 접속하면 느리고 상대 서버에 부담이 된다 (D-12).
 - 영수증·배송은 처리 전에 `inbound`의 서비스로 수신 기록을 조회한다. 영수증은 여기서 수신일시를 얻는다 (D-21).
@@ -986,7 +1001,7 @@ flowchart LR
 
 - "내 최댓값"은 `APPLICANT_KEY = 내 키`인 행의 `MAX(ORDER_ID)`다. 공용 테이블 전체의 최댓값이 아니다.
 - `ORDER_SEQ`는 `ORDER_TB`, `SHIPMENT_SEQ`는 `SHIPMENT_TB`의 내 최댓값과 맞춘다. 평소에는 아무 일도 없고, H2가 비어 있을 때만 이미 쓴 번호를 다시 주지 않게 막는다 (D-08). 사고만이 아니라 새로 받은 코드나 다른 PC에서 실행할 때도 H2는 비어 있다 (`data/`는 Git 제외).
-- 최댓값은 채번기의 포트 `IssuedIdReader`로 읽는다. 구현은 `order`와 `shipment`의 Oracle 어댑터에 있다 (D-21).
+- 최댓값은 채번기의 포트 `IssuedIdReader`로 읽는다. 구현은 `order`의 `OrderService`와 `shipment`의 `ShipmentRecordService`이고, 각 Oracle의 읽기 전용 트랜잭션에서 읽는다 (D-21). 동기화는 `NumberingSyncFacade`가 트랜잭션 없이 지휘하고, H2 트랜잭션은 시퀀스를 올리는 동안만 연다.
 - **기동 실패 조건은 셋이다.** 조용히 틀린 채 도는 것보다 뜨지 않는 편이 낫다.
 
 | 조건 | 그대로 돌면 생기는 일 | 근거 |

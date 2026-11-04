@@ -3,7 +3,7 @@ package com.inspien.assignment.numbering.adapter.in.startup;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Component;
 
-import com.inspien.assignment.numbering.application.NumberingService;
+import com.inspien.assignment.numbering.application.NumberingSyncFacade;
 
 /**
  * 기동 시 채번 동기화 (설계서 §7.3). 모든 빈이 만들어진 직후, 웹 서버와 스케줄러가 시작되기 전에 실행된다.
@@ -12,15 +12,15 @@ import com.inspien.assignment.numbering.application.NumberingService;
 @Component
 class NumberingStartup implements SmartInitializingSingleton {
 
-	private final NumberingService numbering;
+	private final NumberingSyncFacade sync;
 
-	NumberingStartup(NumberingService numbering) {
-		this.numbering = numbering;
+	NumberingStartup(NumberingSyncFacade sync) {
+		this.sync = sync;
 	}
 
 	@Override
 	public void afterSingletonsInstantiated() {
-		this.numbering.synchronizeWithIssuedIds();
+		this.sync.synchronizeWithIssuedIds();
 	}
 
 }

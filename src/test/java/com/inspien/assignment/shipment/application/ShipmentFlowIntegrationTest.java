@@ -54,7 +54,7 @@ class ShipmentFlowIntegrationTest {
 	TestOrders testOrders;
 
 	@Autowired
-	ShipmentService shipments;
+	ShipmentFacade shipments;
 
 	@Autowired
 	OrderService orders;
@@ -77,7 +77,7 @@ class ShipmentFlowIntegrationTest {
 	DataSource historyDataSource;
 
 	@MockitoSpyBean
-	ShipmentRegistry registry;
+	ShipmentRecordService records;
 
 	@Autowired
 	ApplicationEvents events;
@@ -124,8 +124,8 @@ class ShipmentFlowIntegrationTest {
 		String shipmentId = this.stages.artifactOrAssign(orderId, Stage.SHIPMENT,
 				() -> this.numbering.next(IdSequence.SHIPMENT));
 		Order order = this.orders.findById(orderId).orElseThrow();
-		this.registry.insert(Shipment.of(shipmentId, order));
-		doReturn(Optional.empty()).when(this.registry).findByOrderId(orderId);
+		this.records.insert(Shipment.of(shipmentId, order));
+		doReturn(Optional.empty()).when(this.records).findByOrderId(orderId);
 
 		this.shipments.runCycle();
 
@@ -139,7 +139,7 @@ class ShipmentFlowIntegrationTest {
 		String orderId = ids.get(0);
 		String shipmentId = this.stages.artifactOrAssign(orderId, Stage.SHIPMENT,
 				() -> this.numbering.next(IdSequence.SHIPMENT));
-		this.registry.insert(new Shipment(shipmentId, "X999", "OTHER", "다른 주소"));
+		this.records.insert(new Shipment(shipmentId, "X999", "OTHER", "다른 주소"));
 
 		this.shipments.runCycle();
 
@@ -152,7 +152,7 @@ class ShipmentFlowIntegrationTest {
 	@Test
 	void shipmentDbOutageSkipsCycleWithoutCounting() {
 		List<String> ids = received("E");
-		doThrow(new CannotCreateTransactionException("down")).when(this.registry).findByOrderId(anyString());
+		doThrow(new CannotCreateTransactionException("down")).when(this.records).findByOrderId(anyString());
 
 		this.shipments.runCycle();
 		this.shipments.runCycle();
@@ -165,7 +165,7 @@ class ShipmentFlowIntegrationTest {
 	@Test
 	void rejectedInsertIsCountedPerOrder() {
 		List<String> ids = received("F");
-		doThrow(new JpaSystemException(new RuntimeException("ORA-12899"))).when(this.registry).insert(any());
+		doThrow(new JpaSystemException(new RuntimeException("ORA-12899"))).when(this.records).insert(any());
 
 		this.shipments.runCycle();
 

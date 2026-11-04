@@ -44,18 +44,18 @@ import com.inspien.assignment.order.domain.Order;
  *
  * <p>트랜잭션은 걸지 않는다. 짧은 트랜잭션 셋(H2 원본 저장·채번 → Oracle INSERT → H2 완료 기록)을 차례로 부르고,
  * 수신 잠금은 그 바깥에 건다 (D-16). 두 DB는 한 트랜잭션으로 묶을 수 없으므로 정합성은 미리 배정한 주문번호와
- * 재처리 때의 조회로 맞춘다 (D-03, D-05).
+ * 재처리 때의 조회로 맞춘다 (D-03, D-05). H2는 {@link ReceivedMessageService}, Oracle은 {@link OrderService}로만 닿는다.
  */
 @Service
-public class ReceiveOrderService {
+public class ReceiveOrderFacade {
 
-	private static final Logger log = LoggerFactory.getLogger(ReceiveOrderService.class);
+	private static final Logger log = LoggerFactory.getLogger(ReceiveOrderFacade.class);
 
 	static final String MDC_MESSAGE_ID = "messageId";
 
 	private final MessageLocks locks;
 
-	private final InboundRecords records;
+	private final ReceivedMessageService messages;
 
 	private final OrderMessageParser parser;
 
@@ -69,10 +69,10 @@ public class ReceiveOrderService {
 
 	private final ValueLimit valueLimit;
 
-	ReceiveOrderService(MessageLocks locks, InboundRecords records, OrderMessageParser parser, OrderService orders,
-			ProcessEvents events, Clock clock, InboundProperties inbound) {
+	ReceiveOrderFacade(MessageLocks locks, ReceivedMessageService messages, OrderMessageParser parser,
+			OrderService orders, ProcessEvents events, Clock clock, InboundProperties inbound) {
 		this.locks = locks;
-		this.records = records;
+		this.messages = messages;
 		this.parser = parser;
 		this.orders = orders;
 		this.events = events;
@@ -88,7 +88,7 @@ public class ReceiveOrderService {
 			throw new ApiException(ErrorCode.BUSY, "같은 본문을 처리하는 중입니다. 잠시 후 같은 본문을 다시 보내 주세요.");
 		}
 		try {
-			Optional<ReceivedMessage> latest = history(() -> this.records.findLatest(key));
+			Optional<ReceivedMessage> latest = history(() -> this.messages.findLatest(key));
 			ReceivedMessage.Handling handling = latest
 				.map(previous -> previous.handlingOf(arrivedAt, this.duplicateWindow))
 				.orElse(ReceivedMessage.Handling.NEW);
@@ -105,7 +105,7 @@ public class ReceiveOrderService {
 	}
 
 	private ReceiveResult receiveNew(MessageKey key, Instant arrivedAt, String contentType, byte[] body) {
-		ReceivedMessage message = history(() -> this.records.start(key, arrivedAt, contentType, body));
+		ReceivedMessage message = history(() -> this.messages.start(key, arrivedAt, contentType, body));
 		MDC.put(MDC_MESSAGE_ID, message.id());
 		return process(message, List.of());
 	}
@@ -116,7 +116,7 @@ public class ReceiveOrderService {
 	 */
 	private ReceiveResult replay(ReceivedMessage message) {
 		MDC.put(MDC_MESSAGE_ID, message.id());
-		Optional<ReceiveResult> stored = history(() -> this.records.findResult(message.id()));
+		Optional<ReceiveResult> stored = history(() -> this.messages.findResult(message.id()));
 		if (stored.isEmpty()) {
 			// 완료 표시는 있는데 결과가 없다면 기록이 깨진 것이다. 이어서 처리하면 조회로 확인된다
 			return resume(message);
@@ -131,8 +131,8 @@ public class ReceiveOrderService {
 	 */
 	private ReceiveResult resume(ReceivedMessage message) {
 		MDC.put(MDC_MESSAGE_ID, message.id());
-		history(() -> this.records.markProcessing(message.id()));
-		List<AssignedOrder> assigned = history(() -> this.records.findAssigned(message.id()));
+		history(() -> this.messages.markProcessing(message.id()));
+		List<AssignedOrder> assigned = history(() -> this.messages.findAssigned(message.id()));
 		return process(message, assigned);
 	}
 
@@ -153,7 +153,7 @@ public class ReceiveOrderService {
 		if (assigned.isEmpty() && !assembly.accepted().isEmpty()) {
 			try {
 				assigned = history(
-						() -> this.records.assignOrderIds(message.id(), message.receivedAt(), assembly.accepted()));
+						() -> this.messages.assignOrderIds(message.id(), message.receivedAt(), assembly.accepted()));
 			}
 			catch (IdExhaustedException ex) {
 				throw failed(message, ErrorCode.ORDER_ID_EXHAUSTED, "발급할 주문번호가 없습니다. 연계 담당자에게 문의해 주세요.", ex);
@@ -282,7 +282,7 @@ public class ReceiveOrderService {
 	 */
 	private ApiException failed(ReceivedMessage message, ErrorCode code, String detail, Throwable cause) {
 		try {
-			this.records.fail(message.id(), code.status().value(), code.name(), detail);
+			this.messages.fail(message.id(), code.status().value(), code.name(), detail);
 		}
 		catch (RuntimeException ex) {
 			log.error("수신 실패를 H2에 기록하지 못했습니다: {}", code, ex);
@@ -300,7 +300,7 @@ public class ReceiveOrderService {
 	 */
 	private void complete(ReceivedMessage message, ReceiveResult result) {
 		try {
-			this.records.complete(message.id(), result, this.clock.instant());
+			this.messages.complete(message.id(), result, this.clock.instant());
 		}
 		catch (RuntimeException ex) {
 			log.error("수신 완료를 H2에 기록하지 못했습니다. 주문은 저장됐습니다.", ex);

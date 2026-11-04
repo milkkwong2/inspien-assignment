@@ -20,7 +20,7 @@ import com.inspien.assignment.tracking.application.TrackingViews.RetryView;
  * (D-13). 이벤트 기록이 실패해도 재처리는 된다.
  */
 @Service
-public class OperationsService {
+public class OperationsFacade {
 
 	private final OrderService orders;
 
@@ -28,7 +28,7 @@ public class OperationsService {
 
 	private final StageEvents stageEvents;
 
-	public OperationsService(OrderService orders, StageService stages, StageEvents stageEvents) {
+	public OperationsFacade(OrderService orders, StageService stages, StageEvents stageEvents) {
 		this.orders = orders;
 		this.stages = stages;
 		this.stageEvents = stageEvents;

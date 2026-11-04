@@ -38,4 +38,9 @@ public interface OrderStore {
 	 */
 	long close(String orderId);
 
+	/**
+	 * 내 APPLICANT_KEY 범위의 주문번호 전부. 기동 시 채번 동기화가 쓴다 (D-08).
+	 */
+	List<String> issuedIds();
+
 }

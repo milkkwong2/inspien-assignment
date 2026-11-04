@@ -11,8 +11,6 @@ import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
-import com.inspien.assignment.numbering.application.port.IssuedIdReader;
-import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.port.OrderStore;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
@@ -24,7 +22,7 @@ import com.inspien.assignment.order.domain.OrderStatus;
  * 있으면 UPDATE해 PK 충돌 없이 덮어쓴다 (설계서 §4.1). @Repository라 예외가 Spring 예외로 바뀐다.
  */
 @Repository
-class OrderStoreAdapter implements OrderStore, IssuedIdReader {
+class OrderStoreAdapter implements OrderStore {
 
 	private static final QOrderEntity order = QOrderEntity.orderEntity;
 
@@ -95,11 +93,6 @@ class OrderStoreAdapter implements OrderStore, IssuedIdReader {
 			.set(order.status, OrderStatus.Y.name())
 			.where(order.orderId.eq(orderId), order.status.eq(OrderStatus.N.name()))
 			.execute();
-	}
-
-	@Override
-	public IdSequence sequence() {
-		return IdSequence.ORDER;
 	}
 
 	@Override

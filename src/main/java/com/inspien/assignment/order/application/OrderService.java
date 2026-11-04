@@ -7,15 +7,20 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.global.transaction.OrderTx;
+import com.inspien.assignment.numbering.application.port.IssuedIdReader;
+import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.port.OrderStore;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
 
 /**
  * 다른 도메인이 ORDER_TB에 닿는 유일한 길 (D-21). STATUS를 바꾸는 것은 마감(N→Y 조건부) 하나뿐이다 (D-26).
+ *
+ * <p>채번기의 포트 {@link IssuedIdReader}도 여기서 구현한다. 채번기는 order를 모르고(D-21), 기동 시 동기화의 Oracle 읽기는
+ * 다른 읽기처럼 쇼핑몰 DB의 읽기 전용 트랜잭션에서 돈다.
  */
 @Service
-public class OrderService {
+public class OrderService implements IssuedIdReader {
 
 	private final OrderStore store;
 
@@ -59,6 +64,12 @@ public class OrderService {
 	@OrderTx
 	public boolean close(String orderId) {
 		return this.store.close(orderId) == 1;
+	}
+
+	@Override
+	@OrderTx(readOnly = true)
+	public IssuedIds issuedIds() {
+		return new IssuedIds(IdSequence.ORDER, this.store.issuedIds());
 	}
 
 }

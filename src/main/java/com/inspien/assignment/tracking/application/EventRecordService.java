@@ -14,14 +14,14 @@ import com.inspien.assignment.tracking.domain.EventRecord;
  * 처리 이벤트를 H2에 남긴다 (D-13).
  *
  * <p>항상 새 트랜잭션이다. 이벤트를 발행한 쪽의 H2 트랜잭션에 참여하면, 기록 실패가 그 트랜잭션까지 롤백시키고 발행한
- * 쪽이 롤백되면 이벤트도 사라진다. 이력은 업무 처리와 따로 커밋된다 (D-04).
+ * 쪽이 롤백되면 이벤트도 사라진다. 이력은 업무 처리와 따로 커밋된다 (D-04). 읽는 길은 {@link EventQueryService}다.
  */
 @Service
-public class EventRecorder {
+public class EventRecordService {
 
 	private final EventStore store;
 
-	public EventRecorder(EventStore store) {
+	public EventRecordService(EventStore store) {
 		this.store = store;
 	}
 

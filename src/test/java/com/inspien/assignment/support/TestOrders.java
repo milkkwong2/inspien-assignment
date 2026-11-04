@@ -5,7 +5,7 @@ import java.util.List;
 
 import org.springframework.boot.test.context.TestComponent;
 
-import com.inspien.assignment.inbound.application.ReceiveOrderService;
+import com.inspien.assignment.inbound.application.ReceiveOrderFacade;
 import com.inspien.assignment.inbound.application.ReceiveResult;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
@@ -18,7 +18,7 @@ import com.inspien.assignment.stage.domain.StageStatus;
 /**
  * 통합 테스트의 주문 준비와 상태 읽기. 필요한 테스트 클래스가 {@code @Import}한다.
  *
- * <p>주문은 실제 수신 경로({@link ReceiveOrderService})로 받는다. 채번, H2 수신 기록, Oracle 저장이 운영과 같게 일어나야
+ * <p>주문은 실제 수신 경로({@link ReceiveOrderFacade})로 받는다. 채번, H2 수신 기록, Oracle 저장이 운영과 같게 일어나야
  * 영수증·배송·마감이 그 주문을 처리한다.
  */
 @TestComponent
@@ -26,13 +26,13 @@ public class TestOrders {
 
 	static final Charset EUC_KR = Charset.forName("EUC-KR");
 
-	private final ReceiveOrderService receive;
+	private final ReceiveOrderFacade receive;
 
 	private final OrderService orders;
 
 	private final StageService stages;
 
-	TestOrders(ReceiveOrderService receive, OrderService orders, StageService stages) {
+	TestOrders(ReceiveOrderFacade receive, OrderService orders, StageService stages) {
 		this.receive = receive;
 		this.orders = orders;
 		this.stages = stages;

@@ -13,7 +13,7 @@ import com.inspien.assignment.stage.domain.Stage;
 
 /**
  * 단계(영수증·배송)의 재시도 상태가 바뀔 때 남기는 처리 이벤트 (D-13, D-26). 영수증·배송·재처리 API가 같은 단계 변환과
- * 문구를 쓰게 한 곳에 모은다. 단계별 처리 결과(업로드, 등록)의 문구는 각 서비스에 둔다.
+ * 문구를 쓰게 한 곳에 모은다. 단계별 처리 결과(업로드, 등록)의 문구는 각 Facade에 둔다.
  */
 @Component
 public class StageEvents {

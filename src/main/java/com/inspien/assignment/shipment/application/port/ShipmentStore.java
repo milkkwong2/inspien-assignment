@@ -1,5 +1,6 @@
 package com.inspien.assignment.shipment.application.port;
 
+import java.util.List;
 import java.util.Optional;
 
 import com.inspien.assignment.shipment.domain.Shipment;
@@ -20,5 +21,10 @@ public interface ShipmentStore {
 	 * 같은 PK가 있으면 덮어쓰지 않고 DataIntegrityViolationException으로 실패한다.
 	 */
 	void insert(Shipment shipment);
+
+	/**
+	 * 내 APPLICANT_KEY 범위의 배송번호 전부. 기동 시 채번 동기화가 쓴다 (D-08).
+	 */
+	List<String> issuedIds();
 
 }

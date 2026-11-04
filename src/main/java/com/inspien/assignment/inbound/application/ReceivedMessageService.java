@@ -7,7 +7,7 @@ import java.util.Optional;
 
 import com.github.f4b6a3.tsid.TsidCreator;
 
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import com.inspien.assignment.global.transaction.HistoryTx;
 import com.inspien.assignment.inbound.application.port.MessageStore;
@@ -20,17 +20,19 @@ import com.inspien.assignment.numbering.application.NumberingService;
 import com.inspien.assignment.numbering.domain.IdSequence;
 
 /**
- * 수신 흐름의 H2 트랜잭션 경계 (D-16, D-19). 수신 서비스는 트랜잭션 없이 이 빈의 짧은 트랜잭션들을 차례로 부른다.
- * 같은 클래스 안의 호출은 트랜잭션 프록시를 거치지 않으므로 경계를 별도 빈으로 둔다.
+ * 수신 기록(RECEIVED_MESSAGE·MESSAGE_ORDER)의 H2 짧은 트랜잭션 (D-16, D-19). {@link ReceiveOrderFacade}가 트랜잭션 없이
+ * 이 빈의 트랜잭션들을 차례로 부른다. 같은 클래스 안의 호출은 트랜잭션 프록시를 거치지 않으므로 경계를 별도 빈으로 둔다.
+ *
+ * <p>수신 흐름이 기록을 만들고 바꾸는 길이다. 다른 도메인이 같은 기록을 읽는 길은 {@link InboundQueryService}다.
  */
-@Component
-class InboundRecords {
+@Service
+class ReceivedMessageService {
 
 	private final MessageStore store;
 
 	private final NumberingService numbering;
 
-	InboundRecords(MessageStore store, NumberingService numbering) {
+	ReceivedMessageService(MessageStore store, NumberingService numbering) {
 		this.store = store;
 		this.numbering = numbering;
 	}

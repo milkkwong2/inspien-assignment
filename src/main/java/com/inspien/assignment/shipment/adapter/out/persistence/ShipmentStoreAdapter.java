@@ -10,8 +10,6 @@ import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
-import com.inspien.assignment.numbering.application.port.IssuedIdReader;
-import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.shipment.application.port.ShipmentStore;
 import com.inspien.assignment.shipment.domain.Shipment;
 
@@ -20,7 +18,7 @@ import com.inspien.assignment.shipment.domain.Shipment;
  * 덮어쓰지 않는다.
  */
 @Repository
-class ShipmentStoreAdapter implements ShipmentStore, IssuedIdReader {
+class ShipmentStoreAdapter implements ShipmentStore {
 
 	private static final QShipmentEntity shipment = QShipmentEntity.shipmentEntity;
 
@@ -57,11 +55,6 @@ class ShipmentStoreAdapter implements ShipmentStore, IssuedIdReader {
 	public void insert(Shipment model) {
 		this.em.persist(new ShipmentEntity(model.shipmentId(), model.orderId(), model.itemId(), model.address()));
 		this.em.flush();
-	}
-
-	@Override
-	public IdSequence sequence() {
-		return IdSequence.SHIPMENT;
 	}
 
 	@Override

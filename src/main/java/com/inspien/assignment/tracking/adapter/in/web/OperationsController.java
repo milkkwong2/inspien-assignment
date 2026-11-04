@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.inspien.assignment.global.web.ApiResponse;
-import com.inspien.assignment.tracking.application.OperationsService;
+import com.inspien.assignment.tracking.application.OperationsFacade;
 import com.inspien.assignment.tracking.application.TrackingViews;
 
 /**
@@ -19,9 +19,9 @@ import com.inspien.assignment.tracking.application.TrackingViews;
 @RequestMapping("/operations")
 class OperationsController {
 
-	private final OperationsService operations;
+	private final OperationsFacade operations;
 
-	OperationsController(OperationsService operations) {
+	OperationsController(OperationsFacade operations) {
 		this.operations = operations;
 	}
 

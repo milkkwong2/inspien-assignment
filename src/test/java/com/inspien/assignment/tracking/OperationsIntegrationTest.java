@@ -21,8 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
-import com.inspien.assignment.receipt.application.ReceiptService;
-import com.inspien.assignment.shipment.application.ShipmentService;
+import com.inspien.assignment.receipt.application.ReceiptFacade;
+import com.inspien.assignment.shipment.application.ShipmentFacade;
 import com.inspien.assignment.stage.application.StageService;
 import com.inspien.assignment.stage.domain.Stage;
 import com.inspien.assignment.stage.domain.StageState;
@@ -51,10 +51,10 @@ class OperationsIntegrationTest {
 	MockMvc mvc;
 
 	@Autowired
-	ReceiptService receipts;
+	ReceiptFacade receipts;
 
 	@Autowired
-	ShipmentService shipments;
+	ShipmentFacade shipments;
 
 	@Autowired
 	OrderService orders;

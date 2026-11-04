@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import com.inspien.assignment.stage.domain.Stage;
 
 /**
- * 영수증·배송이 똑같이 적는 단계 실패: 재시도 상태를 바꾸고 그에 맞는 이벤트를 남긴다 (D-10, D-22). 두 서비스가 같은
+ * 영수증·배송이 똑같이 적는 단계 실패: 재시도 상태를 바꾸고 그에 맞는 이벤트를 남긴다 (D-10, D-22). 두 Facade가 같은
  * 순서와 문구로 적도록 한 곳에 둔다.
  */
 @Component

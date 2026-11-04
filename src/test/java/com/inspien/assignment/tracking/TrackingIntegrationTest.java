@@ -13,11 +13,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import com.inspien.assignment.order.application.CloseService;
+import com.inspien.assignment.order.application.CloseFacade;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
-import com.inspien.assignment.receipt.application.ReceiptService;
-import com.inspien.assignment.shipment.application.ShipmentService;
+import com.inspien.assignment.receipt.application.ReceiptFacade;
+import com.inspien.assignment.shipment.application.ShipmentFacade;
 import com.inspien.assignment.support.IntegrationFakes;
 import com.inspien.assignment.support.IntegrationTest;
 
@@ -45,13 +45,13 @@ class TrackingIntegrationTest {
 	MockMvc mvc;
 
 	@Autowired
-	ReceiptService receipts;
+	ReceiptFacade receipts;
 
 	@Autowired
-	ShipmentService shipments;
+	ShipmentFacade shipments;
 
 	@Autowired
-	CloseService close;
+	CloseFacade close;
 
 	@Autowired
 	OrderService orders;

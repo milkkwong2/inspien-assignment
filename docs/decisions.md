@@ -30,7 +30,7 @@
 | D-18 | API 형태: `POST /orders`, `GET /tracking/...`. 성공은 `{ traceId, data, page }`, 오류는 Problem Details. 공통 필드는 팩토리와 예외 처리기에서만 채움 (→ D-26 보완: 재처리 API) | 공통 요소는 바깥, 엔드포인트별 필드는 `data`에 두어 재사용하고 실수를 막는다. 성공·실패는 HTTP 상태 코드로만 말한다 | 래핑 없음, `success`·`code`를 담는 래핑, 목록 두 겹 래핑, 쪽 번호 페이징, URL 버전 |
 | D-19 | 트랜잭션 매니저 3개(`@Primary` 없음), H2 `WRITE_DELAY=0`, 기본값이 무한 대기인 곳에만 타임아웃. 재처리 PK 충돌은 다시 조회해 비교. 공용 계정이라 커넥션 풀은 작게(쇼핑몰 5 → 7(D-26), 운송 2), 풀 연결 대기 5초. 수신 본문 상한 1MB, 넘으면 저장 전에 `413` (D-16 보완, → D-21 일부 변경, → 2026-11-01 보완, → D-26 변경, D-27 보완, → 2026-11-04 보완) | 기본값 그대로면 이 앱에서 실제로 문제가 생기는 것만 정한다. 고장 나면 "느린" 게 아니라 "끝없이" 멈춘다 | 기본 매니저 지정, `ddl-auto=update`, Flyway, 커넥션 keepalive, ~~본문 크기 제한~~(→ 2026-11-04 보완에서 채택) |
 | D-20 | 인코딩은 BOM → `Content-Type` charset → XML 선언 → 기본 EUC-KR. EUC-KR 계열은 MS949로 엄격 디코딩, 실패는 `400`. 맨 앞 선언만 지우고 감싸서 DOM으로, DOCTYPE 금지 (D-04 보완) | 송신자가 인코딩을 밝히지 않고 EUC-KR로 보낸다. 깨진 글자를 저장하면 지울 수 없으니 읽지 못하면 입구에서 거부한다 | UTF-8 먼저 시도하는 자동 감지, 대체 문자로 바꿔 저장, 모든 문자셋 허용, 깊이 무관 검색 |
-| D-21 | 도메인별 패키지 + 포트와 어댑터(헥사고날). 앱 안에서는 정규 모델 `Order`만 다루고, 바깥 형식은 어댑터가 변환. 의존 규칙은 ArchUnit으로 강제 (D-19 일부 변경, → 2026-11-01 보완, D-26 보완, → 2026-11-04 보완: `retry` → `stage`, 주기 도구는 `cycle`) | 연계 앱에서 가장 자주 바뀌는 것은 업무 규칙이 아니라 연계 대상과 방식이다. 바뀌면 어댑터 하나만 고친다 | 계층 단위 패키지, 기능 패키지 안에 엔티티, DB별 `store` 패키지, 모든 서비스에 인터페이스 |
+| D-21 | 도메인별 패키지 + 포트와 어댑터(헥사고날). 앱 안에서는 정규 모델 `Order`만 다루고, 바깥 형식은 어댑터가 변환. 의존 규칙은 ArchUnit으로 강제 (D-19 일부 변경, → 2026-11-01 보완, D-26 보완, → 2026-11-04 보완: `retry` → `stage`, 주기 도구는 `cycle`, 흐름은 `…Facade`·DB 하나의 트랜잭션은 `…Service`) | 연계 앱에서 가장 자주 바뀌는 것은 업무 규칙이 아니라 연계 대상과 방식이다. 바뀌면 어댑터 하나만 고친다 | 계층 단위 패키지, 기능 패키지 안에 엔티티, DB별 `store` 패키지, 모든 서비스에 인터페이스 |
 | D-22 | 주변 장애는 기존 경로로: 시작 동기화 실패는 기동 실패, H2 기록 없는 주문은 바로 `*_FAILED`, 우리 쪽 저장소 장애는 횟수 없이 주기 종료, 연결 실패 이벤트는 상태가 바뀔 때만. "주문 실패"는 "건별 실패"로 (D-08·D-10·D-13 보완) (→ D-26 변경) | 빈틈마다 새 장치를 만들지 않는다. 모르는 값은 지어내지 않고 사람에게 넘긴다 | 처음 채번할 때 동기화, 빈 수신일시로 영수증, 매 주기 이벤트 |
 | D-23 | `APPLICANT_KEY`와 지원자 실명은 `config/`(Git 제외)에서 그대로 읽는다. 없으면 기동 실패. 다른 PC에는 `config/`를 복사 | 키는 접속 정보와 한 묶음인 환경 설정이고, 실명은 개인정보다. 과제 API 재호출 시 같은 응답임을 확인했다 | `application.yml`에 직접, 환경 변수 |
 | D-24 | 중복 판단 시간 창은 완료된 메시지에만, 완료 후 1분. 실패(`400` 제외)·처리 중 메시지는 시간과 관계없이 이어서 처리 (D-15·D-16·D-17 변경) | 재전송과 새 주문의 처리가 갈리는 것은 완료된 메시지뿐이다. 실패한 메시지는 어느 쪽이든 "한 번 저장"이 맞다 | 모든 상태에 1분, 10분 유지, 첫 수신부터 세기 |
@@ -910,7 +910,7 @@ FTP 목록에서 이 주문의 파일(기본 이름과 _rN)을 찾는다
 - `@Primary`가 없으면 Spring Boot의 JPA 자동 설정(`EntityManagerFactoryBuilder` 등)이 빠진다. 엔티티 매니저 3개를 직접 구성하고, **각각에 `ddl-auto=none` 등 Hibernate 속성을 명시한다.** 전역 설정만 믿지 않는다.
 - QueryDSL `JPAQueryFactory`도 DB별로 만들어, 그 DB의 트랜잭션에 연동되는 엔티티 매니저를 연결한다.
 - `@DataJpaTest`의 테스트 DB 자동 교체는 `@Primary`만 대상으로 한다. 테스트는 Testcontainers 구성(D-14)으로 DB마다 명시한다.
-- 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않는다. 트랜잭션 경계는 별도 빈으로 나눈다.
+- 같은 클래스 안의 메서드 호출은 트랜잭션 프록시를 거치지 않는다. 트랜잭션 경계는 별도 빈으로 나눈다. (→ 2026-11-04 D-21 6번: 그 빈은 `…Service`, 묶는 쪽은 트랜잭션 없는 `…Facade`로 부른다.)
 
 **2. H2 파일 DB**
 
@@ -1124,7 +1124,7 @@ FTP 목록에서 이 주문의 파일(기본 이름과 _rN)을 찾는다
 
 ### D-21. 패키지와 의존 구조: 도메인별 패키지 + 포트와 어댑터 (D-19 일부 변경)
 
-- **상태:** 결정 (2026-10-31). Q-17 해소. **2026-11-01 보완 (Q-23):** 채번기가 두 Oracle의 최댓값을 읽는 경로와, 영수증·배송이 H2 수신 기록을 읽는 경로를 정한다 (아래 7번). **2026-11-01 D-26으로 보완:** 마감 스케줄러는 `order`에 두고 H2 단계 완료를 `retry` 서비스로 읽는다. 재처리 API는 `tracking`의 웹 어댑터에 두고 `retry` 서비스를 부른다. **2026-11-02 보완:** 조회 API(`tracking`)도 수신 기록을 `inbound`의 서비스로 읽는다는 것을 명시하고(아래 7번), 도메인 사이 허용 의존을 ArchUnit 허용 목록으로 고정한다(아래 2번). **2026-11-04 보완:** `retry` 패키지를 `stage`로 바꾼다(D-26 이후 재시도뿐 아니라 단계 진행 상태 전체를 맡음). 스케줄러 주기 도구(`CycleRunner`·`NextStep`·`ConnectionWatch`)는 `global`에만 의존하는 `cycle` 패키지로 나누고, 이벤트 구간 enum은 `ProcessEvent.Stage`에서 `EventStage`로 이름을 가른다 (아래 1번). **같은 날 보완:** 설정 레코드를 값을 쓰는 모듈로 나누고 기동할 때 검사한다 (아래 6번).
+- **상태:** 결정 (2026-10-31). Q-17 해소. **2026-11-01 보완 (Q-23):** 채번기가 두 Oracle의 최댓값을 읽는 경로와, 영수증·배송이 H2 수신 기록을 읽는 경로를 정한다 (아래 7번). **2026-11-01 D-26으로 보완:** 마감 스케줄러는 `order`에 두고 H2 단계 완료를 `retry` 서비스로 읽는다. 재처리 API는 `tracking`의 웹 어댑터에 두고 `retry` 서비스를 부른다. **2026-11-02 보완:** 조회 API(`tracking`)도 수신 기록을 `inbound`의 서비스로 읽는다는 것을 명시하고(아래 7번), 도메인 사이 허용 의존을 ArchUnit 허용 목록으로 고정한다(아래 2번). **2026-11-04 보완:** `retry` 패키지를 `stage`로 바꾼다(D-26 이후 재시도뿐 아니라 단계 진행 상태 전체를 맡음). 스케줄러 주기 도구(`CycleRunner`·`NextStep`·`ConnectionWatch`)는 `global`에만 의존하는 `cycle` 패키지로 나누고, 이벤트 구간 enum은 `ProcessEvent.Stage`에서 `EventStage`로 이름을 가른다 (아래 1번). **같은 날 보완:** 설정 레코드를 값을 쓰는 모듈로 나누고 기동할 때 검사한다 (아래 6번). **같은 날 보완:** 역할 이름 규약. 흐름을 지휘하는 클래스는 `…Facade`(트랜잭션 없음), DB 하나의 짧은 트랜잭션을 거는 클래스는 `…Service`로 부르고 ArchUnit으로 강제한다 (아래 6번).
 - **문제:** 초안은 기능 단위 패키지(`receive`, `receipt`, …)였고, D-19는 엔티티를 DB별 패키지에 모으기로 했다. 그런데 `ORDER_TB`는 수신(INSERT), 영수증·배송(조회, `STATUS` 갱신), 조회 API가 모두 쓴다. 어느 기능 패키지에도 둘 수 없다.
 
 **근거: 연계 앱에서 자주 바뀌는 것은 연계 대상과 방식이다.**
@@ -1156,7 +1156,7 @@ com.inspien.assignment
 | 패키지 | 들어가는 것 | 전통 계층과 대응 |
 |---|---|---|
 | `domain` | 정규 모델, 업무 규칙. 순수 Java (Spring·JPA 없음) | — |
-| `application` | 서비스(처리 흐름, 트랜잭션 경계), `port`(바깥에 요구하는 인터페이스) | Service |
+| `application` | 서비스(처리 흐름, 트랜잭션 경계 → 2026-11-04 6번: `…Facade`와 `…Service`로 나눔), `port`(바깥에 요구하는 인터페이스) | Service |
 | `adapter/in/web`, `adapter/in/scheduler` | 컨트롤러, 요청·응답 DTO, 스케줄러 | Controller |
 | `adapter/out/persistence`, `adapter/out/ftp` 등 | 포트 구현, JPA 엔티티, Spring Data 리포지토리, FTP 클라이언트 | Repository |
 
@@ -1201,6 +1201,20 @@ com.inspien.assignment
 - DataSource·엔티티 매니저·트랜잭션 매니저 설정은 `global`에 DB별로 둔다. H2는 여러 도메인이 쓰므로 설정이 각 도메인의 `adapter/out/persistence`를 나열한다. 빠뜨리면 기동 시 실패해 조용히 틀리지 않고, 설정이 "어느 도메인이 어느 DB를 쓰는지"를 보여 준다.
 - 트랜잭션은 `application` 서비스 메서드에 `@OrderTx`·`@ShipmentTx`·`@HistoryTx`로 건다. D-19의 짧은 트랜잭션들은 단위별로 빈을 나눈다.
 - **2026-11-04 보완:** 설정 레코드는 값을 쓰는 모듈에 둔다. `global`의 `AppProperties` 하나를 모든 서비스가 받아 1~3개 값만 읽던 것을 나눴다: DB 접속은 `global`(`AppProperties`), 지원자는 `global`(`ApplicantProperties`), 수신은 `inbound`, 영수증·FTP는 `receipt`, 재시도는 `stage`. 스케줄러 설정은 `global`에 둔다. 세 도메인이 주기당 건수를 읽고 `stage`가 주기를 재시도 간격과 견주는데, `stage`는 다른 도메인을 모르므로 `cycle`에 두면 볼 수 없다. YAML 키는 그대로이고, 레코드마다 기동할 때 값을 검사한다 (설계서 §9).
+- **2026-11-04 보완: 역할 이름 규약.** 흐름을 지휘하는 클래스와 트랜잭션을 거는 클래스가 모두 `…Service`였고, D-19의 "별도 빈"은 `InboundRecords`·`ShipmentRegistry`처럼 다른 이름이었다. 이름만 보고는 그 호출이 트랜잭션 안인지, 흐름 전체인지 알 수 없었다. 이름으로 역할을 나눈다 (설계서 §3 Facade / Service 규약).
+
+| | `…Facade` (흐름 지휘) | `…Service` (DB 하나의 짧은 트랜잭션) |
+|---|---|---|
+| 맡는 것 | 여러 DB의 Service, 바깥 포트(FTP, 파서), 이벤트를 차례로 부르고 업무 판단을 한다. Spring DB 예외를 트랜잭션 밖에서 받아 나눈다 (D-25) | DB 하나를 그 DB의 포트로 읽고 쓴다 |
+| 트랜잭션 | 걸지 않는다 | 메서드마다 그 DB의 애너테이션. 한 클래스에 DB 하나만 (D-19) |
+| 부르는 쪽 | 컨트롤러, 스케줄러 | Facade, 다른 도메인 |
+| 부르지 않는 것 | 저장소 포트를 직접 (Service로만 닿는다) | Facade, FTP 같은 느린 바깥 호출 (트랜잭션 동안 연결을 잡는다) |
+
+- 이름 변경: 흐름 여섯은 `ReceiveOrderFacade`·`ReceiptFacade`·`ShipmentFacade`·`CloseFacade`·`TrackingQueryFacade`·`OperationsFacade`. 트랜잭션 쪽은 다루는 데이터로 부른다: `InboundRecords` → `ReceivedMessageService`(수신 기록 `RECEIVED_MESSAGE`·`MESSAGE_ORDER`를 만들고 바꾼다. 다른 도메인이 읽는 길은 그대로 `InboundQueryService`), `ShipmentRegistry` → `ShipmentRecordService`(운송 DB `SHIPMENT_TB`의 배송 기록), `EventRecorder` → `EventRecordService`.
+- 조회 API가 H2 처리 이벤트만 포트(`EventStore`)로 트랜잭션 없이 읽고 있었다. 다른 H2 읽기처럼 읽기 전용 트랜잭션을 거는 `EventQueryService`를 두고 그것으로 읽는다. 결과는 같다.
+- 둘 다 아닌 부품(`CycleRunner`, `ConnectionWatch`, `StageFailures`, `StageEvents`, `MessageLocks`, `ProcessEvents`)은 이름을 그대로 둔다. 처리 이벤트 리스너는 트랜잭션 하나만 부르는 진입점이라 Facade 없이 Service를 부른다.
+- 기동 때 채번 동기화는 H2 트랜잭션 안에서 두 Oracle을 읽던 것을 나눴다. `NumberingSyncFacade`가 트랜잭션 없이 지휘한다: 두 Oracle에서 이미 쓴 번호를 포트 `IssuedIdReader`로 읽고, 최댓값을 구해 `NumberingService.raiseNextTo`로 H2 시퀀스를 올린다. H2 트랜잭션은 올리는 동안만 열린다. `IssuedIdReader`의 구현은 Oracle 어댑터에서 각 도메인의 `OrderService`·`ShipmentRecordService`로 옮겨(7번 표), 읽기가 다른 Oracle 읽기처럼 그 DB의 읽기 전용 트랜잭션에서 돈다. 포트는 메서드 하나(`issuedIds()`가 시퀀스와 번호를 함께 돌려줌)로 줄여, Service의 공개 메서드가 모두 트랜잭션이라는 규칙을 그대로 지킨다. 계산값·로그·Oracle에 닿지 못하면 기동이 실패하는 것(D-22)은 같다.
+- ArchUnit으로 강제한다: Facade에 트랜잭션 없음, 트랜잭션을 거는 클래스는 DB 하나의 `…Service`이고 Service의 메서드는 모두 트랜잭션 안, Service → Facade 금지, 트랜잭션 클래스 → `ReceiptUploader` 금지, Facade → 저장소 포트(`…Store`) 금지, 컨트롤러·스케줄러·기동 → 트랜잭션 Service 금지(처리 이벤트 리스너는 예외로 적어 둠). `IssuedIdReader`는 저장소 포트가 아니라 다른 도메인의 트랜잭션 Service가 구현하는 도메인 사이 포트라, Facade가 불러도 Service 경계를 거친다.
 
 **7. 2026-11-01 보완 (Q-23): 다른 도메인의 데이터를 읽는 경로**
 
@@ -1211,7 +1225,7 @@ com.inspien.assignment
 
 | 읽는 것 | 경로 | 이유 |
 |---|---|---|
-| 두 Oracle에서 내 최댓값 | `numbering`이 포트 `IssuedIdReader`("이미 쓴 번호의 최댓값")를 정의하고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다 | 의존이 `order`·`shipment` → `numbering` 한 방향이라 순환이 없다. 각 Oracle 테이블의 어댑터는 그 테이블을 맡은 도메인 한 곳에 그대로 있다 |
+| 두 Oracle에서 내 최댓값 | `numbering`이 포트 `IssuedIdReader`("이미 쓴 번호의 최댓값")를 정의하고, `order`와 `shipment`의 Oracle 어댑터가 각각 구현한다 (2026-11-04: 구현을 각 도메인의 `OrderService`·`ShipmentRecordService`로 옮겼다. 6번 보완) | 의존이 `order`·`shipment` → `numbering` 한 방향이라 순환이 없다. 각 Oracle 테이블의 어댑터는 그 테이블을 맡은 도메인 한 곳에 그대로 있다 |
 | 수신일시, 수신 기록 유무, 메시지 처리 결과 | `inbound`가 `RECEIVED_MESSAGE`·`MESSAGE_ORDER`를 맡고, 영수증·배송과 조회(`tracking`)는 `inbound`의 서비스로 조회한다 | 원본 보존과 번호 배정을 기록하는 쪽이 그 데이터를 맡는다. `inbound`는 영수증·배송·조회를 모르므로 순환이 없다. `inbound`가 남기는 처리 이벤트는 `tracking`을 직접 부르지 않고 Spring 이벤트로 발행한다 (D-13) |
 
 - 포트를 구현하는 어댑터가 다른 도메인에 있는 경우는 이것 하나다. 채번기 안에 Oracle 어댑터를 따로 두면 `APPLICANT_KEY`를 붙이는 곳이 늘어난다 (5번).

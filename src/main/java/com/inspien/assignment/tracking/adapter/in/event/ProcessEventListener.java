@@ -7,7 +7,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import com.inspien.assignment.global.event.ProcessEvent;
-import com.inspien.assignment.tracking.application.EventRecorder;
+import com.inspien.assignment.tracking.application.EventRecordService;
 
 /**
  * 각 도메인이 발행한 처리 이벤트를 받아 기록한다. 이벤트로 받는 이유: tracking은 조회 때문에 inbound·order를 읽으므로,
@@ -20,16 +20,16 @@ class ProcessEventListener {
 
 	private static final Logger log = LoggerFactory.getLogger(ProcessEventListener.class);
 
-	private final EventRecorder recorder;
+	private final EventRecordService events;
 
-	ProcessEventListener(EventRecorder recorder) {
-		this.recorder = recorder;
+	ProcessEventListener(EventRecordService events) {
+		this.events = events;
 	}
 
 	@EventListener
 	void on(ProcessEvent event) {
 		try {
-			this.recorder.record(event);
+			this.events.record(event);
 		}
 		catch (RuntimeException ex) {
 			log.warn("처리 이벤트를 H2에 남기지 못했습니다: {}", event.logSummary(), ex);

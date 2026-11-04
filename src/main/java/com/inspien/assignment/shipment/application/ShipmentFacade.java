@@ -39,7 +39,7 @@ import com.inspien.assignment.stage.domain.Stage;
  * </ul>
  */
 @Service
-public class ShipmentService {
+public class ShipmentFacade {
 
 	private static final Stage STAGE = Stage.SHIPMENT;
 
@@ -53,7 +53,7 @@ public class ShipmentService {
 
 	private final NumberingService numbering;
 
-	private final ShipmentRegistry registry;
+	private final ShipmentRecordService shipments;
 
 	private final ProcessEvents events;
 
@@ -67,14 +67,14 @@ public class ShipmentService {
 
 	private final ConnectionWatch shipmentDb;
 
-	ShipmentService(OrderService orders, InboundQueryService inbound, StageService stages, NumberingService numbering,
-			ShipmentRegistry registry, ProcessEvents events, StageEvents stageEvents, StageFailures failures,
+	ShipmentFacade(OrderService orders, InboundQueryService inbound, StageService stages, NumberingService numbering,
+			ShipmentRecordService shipments, ProcessEvents events, StageEvents stageEvents, StageFailures failures,
 			CycleRunner cycles, SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.stages = stages;
 		this.numbering = numbering;
-		this.registry = registry;
+		this.shipments = shipments;
 		this.events = events;
 		this.stageEvents = stageEvents;
 		this.failures = failures;
@@ -120,10 +120,10 @@ public class ShipmentService {
 		String orderId = shipment.orderId();
 		Optional<Shipment> existing;
 		try {
-			existing = this.registry.findByOrderId(orderId);
+			existing = this.shipments.findByOrderId(orderId);
 			this.shipmentDb.connected();
 			if (existing.isEmpty()) {
-				this.registry.insert(shipment);
+				this.shipments.insert(shipment);
 			}
 		}
 		catch (DataIntegrityViolationException ex) {
@@ -161,7 +161,7 @@ public class ShipmentService {
 		String orderId = shipment.orderId();
 		Optional<Shipment> stored;
 		try {
-			stored = this.registry.findById(shipment.shipmentId());
+			stored = this.shipments.findById(shipment.shipmentId());
 		}
 		catch (RuntimeException ex) {
 			if (DbFailures.isConnectionOrResource(ex)) {

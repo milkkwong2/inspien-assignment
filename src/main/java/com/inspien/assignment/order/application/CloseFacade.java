@@ -23,7 +23,7 @@ import com.inspien.assignment.stage.application.StageService;
  * Y)은 오류가 아니다.
  */
 @Service
-public class CloseService {
+public class CloseFacade {
 
 	private static final String CYCLE_NAME = "마감";
 
@@ -37,7 +37,7 @@ public class CloseService {
 
 	private final int batchSize;
 
-	public CloseService(OrderService orders, StageService stages, ProcessEvents events, CycleRunner cycles,
+	public CloseFacade(OrderService orders, StageService stages, ProcessEvents events, CycleRunner cycles,
 			SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.stages = stages;

@@ -10,7 +10,7 @@ import com.inspien.assignment.global.config.PropertyChecks;
 import com.inspien.assignment.inbound.domain.ValueLimit;
 
 /**
- * IF-01 수신 설정 (설계서 §9). 서비스·잠금과 어댑터(컨트롤러, 파서)가 함께 쓰므로 application에 둔다. 어댑터는
+ * IF-01 수신 설정 (설계서 §9). 수신 Facade·잠금과 어댑터(컨트롤러, 파서)가 함께 쓰므로 application에 둔다. 어댑터는
  * application을 볼 수 있고, domain은 Spring을 모른 채 남는다 (D-21).
  *
  * <p>문자셋은 Charset으로 받아 이름이 틀리면 바인딩할 때(기동할 때) 실패한다. 기본 문자셋이 허용 목록(UTF-8, EUC-KR

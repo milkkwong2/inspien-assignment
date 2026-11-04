@@ -17,7 +17,7 @@ import com.inspien.assignment.global.error.ErrorCode;
 import com.inspien.assignment.global.web.ApiResponse;
 import com.inspien.assignment.inbound.domain.MessageState;
 import com.inspien.assignment.stage.domain.StageStatus;
-import com.inspien.assignment.tracking.application.TrackingQueryService;
+import com.inspien.assignment.tracking.application.TrackingQueryFacade;
 import com.inspien.assignment.tracking.application.TrackingViews;
 
 /**
@@ -35,9 +35,9 @@ class TrackingController {
 
 	static final int MAX_LIMIT = 200;
 
-	private final TrackingQueryService tracking;
+	private final TrackingQueryFacade tracking;
 
-	TrackingController(TrackingQueryService tracking) {
+	TrackingController(TrackingQueryFacade tracking) {
 		this.tracking = tracking;
 	}
 

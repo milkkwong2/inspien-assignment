@@ -42,7 +42,7 @@ import com.inspien.assignment.stage.domain.Stage;
  * </ul>
  */
 @Service
-public class ReceiptService {
+public class ReceiptFacade {
 
 	private static final Stage STAGE = Stage.RECEIPT;
 
@@ -74,7 +74,7 @@ public class ReceiptService {
 
 	private final ConnectionWatch ftp;
 
-	public ReceiptService(OrderService orders, InboundQueryService inbound, StageService stages,
+	public ReceiptFacade(OrderService orders, InboundQueryService inbound, StageService stages,
 			ReceiptUploader uploader, ProcessEvents events, StageFailures failures, CycleRunner cycles, Clock clock,
 			ApplicantProperties applicant, ReceiptProperties receipt, SchedulerProperties scheduler) {
 		this.orders = orders;

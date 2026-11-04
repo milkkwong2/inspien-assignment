@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.inspien.assignment.numbering.application.NumberingService;
+import com.inspien.assignment.numbering.application.NumberingSyncFacade;
 import com.inspien.assignment.numbering.domain.IdSequence;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
@@ -24,6 +25,9 @@ class NumberingIntegrationTest {
 	NumberingService numbering;
 
 	@Autowired
+	NumberingSyncFacade sync;
+
+	@Autowired
 	OrderService orders;
 
 	@Test
@@ -34,7 +38,7 @@ class NumberingIntegrationTest {
 
 		// H2를 잃고 Oracle에만 B005까지 남은 상황: 다른 경로로 들어간 내 주문
 		this.orders.insertAll(List.of(Order.received("B005", "U", "I", "N", "A", "IN", "1")));
-		this.numbering.synchronizeWithIssuedIds();
+		this.sync.synchronizeWithIssuedIds();
 
 		assertThat(this.numbering.next(IdSequence.ORDER)).isEqualTo("B006");
 		assertThat(this.numbering.next(IdSequence.ORDER)).isEqualTo("B007");
@@ -45,7 +49,7 @@ class NumberingIntegrationTest {
 		this.numbering.next(IdSequence.SHIPMENT);
 		String before = this.numbering.next(IdSequence.SHIPMENT);
 
-		this.numbering.synchronizeWithIssuedIds();
+		this.sync.synchronizeWithIssuedIds();
 
 		assertThat(this.numbering.next(IdSequence.SHIPMENT)).isGreaterThan(before);
 	}

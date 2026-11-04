@@ -20,7 +20,7 @@ import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
-import com.inspien.assignment.receipt.application.ReceiptService;
+import com.inspien.assignment.receipt.application.ReceiptFacade;
 import com.inspien.assignment.stage.application.StageService;
 import com.inspien.assignment.stage.domain.Stage;
 import com.inspien.assignment.stage.domain.StageState;
@@ -46,7 +46,7 @@ class ReceiptFlowIntegrationTest {
 	TestOrders testOrders;
 
 	@Autowired
-	ReceiptService receipts;
+	ReceiptFacade receipts;
 
 	@Autowired
 	OrderService orders;

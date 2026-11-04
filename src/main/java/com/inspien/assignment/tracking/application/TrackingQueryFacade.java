@@ -32,7 +32,6 @@ import com.inspien.assignment.tracking.application.TrackingViews.OrderDetail;
 import com.inspien.assignment.tracking.application.TrackingViews.OrderSummary;
 import com.inspien.assignment.tracking.application.TrackingViews.Page;
 import com.inspien.assignment.tracking.application.TrackingViews.StageView;
-import com.inspien.assignment.tracking.application.port.EventStore;
 import com.inspien.assignment.tracking.domain.EventRecord;
 
 /**
@@ -41,9 +40,11 @@ import com.inspien.assignment.tracking.domain.EventRecord;
  *
  * <p>둘이 어긋나면 정해 둔 쪽을 따른다. STATUS=Y인데 H2 기록이 없으면(H2 유실) 끝난 주문이라 두 단계를 DONE으로 보여 준다.
  * H2 조회가 실패하면 예외가 그대로 올라가 오류로 응답한다. "기록 없음"으로 바꿔 보여 주지 않는다.
+ *
+ * <p>트랜잭션은 걸지 않는다. 각 DB는 그 DB의 서비스가 거는 읽기 전용 트랜잭션으로 읽는다.
  */
 @Service
-public class TrackingQueryService {
+public class TrackingQueryFacade {
 
 	private final OrderService orders;
 
@@ -51,12 +52,12 @@ public class TrackingQueryService {
 
 	private final StageService stages;
 
-	private final EventStore events;
+	private final EventQueryService events;
 
 	private final Clock clock;
 
-	public TrackingQueryService(OrderService orders, InboundQueryService inbound, StageService stages,
-			EventStore events, Clock clock) {
+	TrackingQueryFacade(OrderService orders, InboundQueryService inbound, StageService stages,
+			EventQueryService events, Clock clock) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.stages = stages;

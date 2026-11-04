@@ -1,6 +1,5 @@
 package com.inspien.assignment.receipt.application;
 
-import java.nio.charset.Charset;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -23,6 +22,7 @@ import com.inspien.assignment.inbound.application.InboundQueryService;
 import com.inspien.assignment.order.application.OrderService;
 import com.inspien.assignment.order.domain.Order;
 import com.inspien.assignment.order.domain.OrderStatus;
+import com.inspien.assignment.receipt.application.port.ReceiptFormatter;
 import com.inspien.assignment.receipt.application.port.ReceiptUploader;
 import com.inspien.assignment.receipt.domain.Receipt;
 import com.inspien.assignment.receipt.domain.UploadPlan;
@@ -54,6 +54,8 @@ public class ReceiptFacade {
 
 	private final StageService stages;
 
+	private final ReceiptFormatter formatter;
+
 	private final ReceiptUploader uploader;
 
 	private final ProcessEvents events;
@@ -66,28 +68,23 @@ public class ReceiptFacade {
 
 	private final String applicantName;
 
-	private final Charset contentCharset;
-
-	private final boolean bom;
-
 	private final int batchSize;
 
 	private final ConnectionWatch ftp;
 
 	public ReceiptFacade(OrderService orders, InboundQueryService inbound, StageService stages,
-			ReceiptUploader uploader, ProcessEvents events, StageFailures failures, CycleRunner cycles, Clock clock,
-			ApplicantProperties applicant, ReceiptProperties receipt, SchedulerProperties scheduler) {
+			ReceiptFormatter formatter, ReceiptUploader uploader, ProcessEvents events, StageFailures failures,
+			CycleRunner cycles, Clock clock, ApplicantProperties applicant, SchedulerProperties scheduler) {
 		this.orders = orders;
 		this.inbound = inbound;
 		this.stages = stages;
+		this.formatter = formatter;
 		this.uploader = uploader;
 		this.events = events;
 		this.failures = failures;
 		this.cycles = cycles;
 		this.clock = clock;
 		this.applicantName = applicant.name();
-		this.contentCharset = receipt.contentCharset();
-		this.bom = receipt.bom();
 		this.batchSize = scheduler.batchSize();
 		this.ftp = new ConnectionWatch("FTP", EventStage.RECEIPT, events);
 	}
@@ -136,7 +133,7 @@ public class ReceiptFacade {
 		}
 		OffsetDateTime receivedTime = receivedAt.get().atZone(this.clock.getZone()).toOffsetDateTime();
 		Receipt receipt = new Receipt(found.get(), receivedTime, this.applicantName);
-		byte[] content = receipt.content(this.contentCharset, this.bom);
+		byte[] content = this.formatter.format(receipt);
 		UploadPlan plan = UploadPlan.of(receipt, listing, content.length);
 		if (!plan.upload()) {
 			alreadyUploaded(orderId, plan.fileName());

@@ -162,7 +162,7 @@ flowchart LR
 | 공통 | `global` | 응답 래퍼, 오류 코드 enum, 전역 예외 처리기, `traceId`, DataSource 3개 설정 | — | D-18, D-19 |
 | 부트스트랩 (구현됨) | `bootstrap` | 과제 API에서 접속 정보 수신·복호화. 별도 진입점 `./gradlew bootstrap` | `config/` | — |
 
-**패키지 구조 (D-21).** 도메인별로 나누고, 도메인마다 안쪽(`domain`, `application`)과 바깥(`adapter`)을 나눈다. 앱 안에서는 주문을 정규 모델 `Order`로만 다루고, 바깥 형식(XML, `ORDER_TB` 행, CSV, `SHIPMENT_TB` 행)은 어댑터가 변환한다.
+**패키지 구조 (D-21).** 도메인별로 나누고, 도메인마다 안쪽(`domain`, `application`)과 바깥(`adapter`)을 나눈다. 앱 안에서는 주문을 정규 모델 `Order`로만 다루고, 바깥 형식(XML, `ORDER_TB` 행, CSV, `SHIPMENT_TB` 행)은 어댑터가 변환한다. 수신 XML은 `XmlOrderMessageParser`(포트 `OrderMessageParser`)가 읽고, 영수증 CSV는 `CsvReceiptFormatter`(포트 `ReceiptFormatter`)가 만든다.
 
 ```mermaid
 flowchart LR
@@ -237,11 +237,12 @@ flowchart LR
 
 ```
 receipt
-├─ domain            Receipt: CSV 내용, 파일명 규칙 (순수 Java)
+├─ domain            Receipt: 파일명·재시도 번호 규칙, UploadPlan: 완전성 확인 (순수 Java)
 ├─ application       ReceiptFacade (처리 흐름, 트랜잭션 없음)
-│  └─ port           ReceiptUploader (바깥에 요구하는 인터페이스)
+│  └─ port           ReceiptFormatter, ReceiptUploader (바깥에 요구하는 인터페이스)
 └─ adapter
    ├─ in/scheduler   ReceiptScheduler
+   ├─ out/csv        CsvReceiptFormatter (CSV 변환, 포트 구현), ReceiptProperties
    └─ out/ftp        FtpReceiptUploader (포트 구현)
 ```
 
@@ -253,7 +254,7 @@ receipt
 
 - 의존 규칙: `adapter` → `application` → `domain`. 다른 도메인은 `application`으로만 부른다. ArchUnit 테스트로 강제한다 (D-21).
 - 도메인 사이 화살표는 위 그림에 있는 것만 허용한다. 같은 허용 목록을 ArchUnit 테스트에 두어, 그림에 없는 의존이 생기면 테스트가 실패한다. 그림을 바꿀 때는 그 목록도 함께 바꾼다 (D-21).
-- 포트는 바깥 시스템(쇼핑몰 Oracle, 운송 Oracle, FTP, H2, 수신 본문 파서)에만 둔다. 내부 서비스는 인터페이스 없이 클래스다.
+- 포트는 바깥 시스템(쇼핑몰 Oracle, 운송 Oracle, FTP, H2)과 바깥 형식 변환기(수신 본문 파서, 영수증 CSV 변환기)에만 둔다. 내부 서비스는 인터페이스 없이 클래스다.
 - `APPLICANT_KEY`는 Oracle 어댑터가 모든 쿼리 조건과 INSERT 값에 붙인다. 서비스와 정규 모델은 이 값을 모른다 (D-01, D-21).
 
 **Facade / Service 규약 (D-19, D-21 6번, D-25).** `application`의 클래스는 이름으로 역할을 나눈다. DB 셋은 한 트랜잭션으로 묶을 수 없어, 흐름을 지휘하는 쪽과 DB 하나의 짧은 트랜잭션을 거는 쪽이 따로다.
@@ -658,6 +659,7 @@ flowchart TD
 | 정본 규칙 | 같은 주문은 재시도 번호가 가장 큰 파일이 정본 | D-09 |
 
 - 내용은 `ORDER_TB`와 H2에 저장된 값만으로 만든다. 같은 주문이면 항상 같은 바이트가 나오므로 예상 크기를 미리 계산할 수 있다.
+- 위 표의 형식 세부(헤더, 수신일시 형식, 인코딩·BOM, 줄바꿈, 이스케이프, 수식 무력화)는 어댑터 `CsvReceiptFormatter`가 포트 `ReceiptFormatter` 뒤에서 맡는다. 수신 XML 파서와 방향만 반대인 변환기다. 도메인 `Receipt`는 영수증 값과 파일명·재시도 번호 규칙만 둔다 (D-21).
 - 파일 내용 예시. §5.1 예시의 `A002`(`영수증_홍길동_A002.csv`)다. `﻿`은 BOM, `⏎`는 CRLF:
 
   ```

@@ -18,8 +18,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Configuration;
 
 import com.inspien.assignment.inbound.application.InboundProperties;
+import com.inspien.assignment.receipt.adapter.out.csv.ReceiptProperties;
 import com.inspien.assignment.receipt.adapter.out.ftp.FtpProperties;
-import com.inspien.assignment.receipt.application.ReceiptProperties;
 import com.inspien.assignment.stage.application.RetryProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;

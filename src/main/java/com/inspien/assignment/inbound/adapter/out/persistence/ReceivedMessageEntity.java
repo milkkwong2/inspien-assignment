@@ -4,14 +4,17 @@ import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 import com.inspien.assignment.global.persistence.BaseTimeEntity;
+import com.inspien.assignment.inbound.domain.MessageState;
 
 /**
- * H2 RECEIVED_MESSAGE (schema-h2.sql).
+ * H2 RECEIVED_MESSAGE (schema-h2.sql). STATE는 enum 이름(PROCESSING·COMPLETED·FAILED) 그대로 저장한다.
  */
 @Entity
 @Table(name = "RECEIVED_MESSAGE")
@@ -38,8 +41,9 @@ class ReceivedMessageEntity extends BaseTimeEntity {
 	@Column(name = "RAW_BODY")
 	private byte[] rawBody;
 
+	@Enumerated(EnumType.STRING)
 	@Column(name = "STATE")
-	private String state;
+	private MessageState state;
 
 	@Column(name = "RESPONSE_STATUS")
 	private Integer responseStatus;
@@ -55,7 +59,7 @@ class ReceivedMessageEntity extends BaseTimeEntity {
 	}
 
 	ReceivedMessageEntity(String id, String messageKey, Instant receivedAt, String contentType, byte[] rawBody,
-			String state) {
+			MessageState state) {
 		this.id = id;
 		this.messageKey = messageKey;
 		this.receivedAt = receivedAt;
@@ -65,14 +69,27 @@ class ReceivedMessageEntity extends BaseTimeEntity {
 	}
 
 	void processing() {
-		this.state = "PROCESSING";
+		this.state = MessageState.PROCESSING;
 	}
 
-	void finish(String state, int responseStatus, String responseBody, Instant completedAt) {
-		this.state = state;
+	/**
+	 * 저장과 응답 기록까지 끝남. 완료 시각은 중복 판단 1분 창의 기준이다 (D-24).
+	 */
+	void complete(int responseStatus, String responseBody, Instant completedAt) {
+		this.state = MessageState.COMPLETED;
 		this.responseStatus = responseStatus;
 		this.responseBody = responseBody;
 		this.completedAt = completedAt;
+	}
+
+	/**
+	 * 실패. 완료 시각은 비운다: 실패한 메시지는 시간 창 없이 이어서 처리한다 (D-24).
+	 */
+	void fail(int responseStatus, String responseBody) {
+		this.state = MessageState.FAILED;
+		this.responseStatus = responseStatus;
+		this.responseBody = responseBody;
+		this.completedAt = null;
 	}
 
 	String id() {
@@ -95,7 +112,7 @@ class ReceivedMessageEntity extends BaseTimeEntity {
 		return this.rawBody;
 	}
 
-	String state() {
+	MessageState state() {
 		return this.state;
 	}
 

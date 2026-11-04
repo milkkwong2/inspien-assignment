@@ -37,7 +37,7 @@ class JpaStageStore implements StageStore {
 
 	@Override
 	public Optional<StageState> find(String orderId, Stage stage) {
-		OrderStageEntity found = this.em.find(OrderStageEntity.class, new OrderStageEntity.Key(orderId, stage.name()));
+		OrderStageEntity found = this.em.find(OrderStageEntity.class, new OrderStageEntity.Key(orderId, stage));
 		return Optional.ofNullable(found)
 			.map(JpaStageStore::toModel);
 	}
@@ -48,7 +48,7 @@ class JpaStageStore implements StageStore {
 			return Map.of();
 		}
 		return this.query.selectFrom(orderStage)
-			.where(orderStage.stage.eq(stage.name()), orderStage.orderId.in(orderIds))
+			.where(orderStage.stage.eq(stage), orderStage.orderId.in(orderIds))
 			.fetch()
 			.stream()
 			.map(JpaStageStore::toModel)
@@ -58,14 +58,13 @@ class JpaStageStore implements StageStore {
 	@Override
 	public void save(StageState state) {
 		OrderStageEntity entity = this.em.find(OrderStageEntity.class,
-				new OrderStageEntity.Key(state.orderId(), state.stage().name()));
+				new OrderStageEntity.Key(state.orderId(), state.stage()));
 		boolean isNew = (entity == null);
 		if (isNew) {
-			entity = new OrderStageEntity(state.orderId(), state.stage().name());
+			entity = new OrderStageEntity(state.orderId(), state.stage());
 		}
 		// persist 전에 값을 채운다. Hibernate는 persist 시점의 값으로 INSERT한다
-		entity.update(state.attempts(), state.nextAttemptAt(), state.reachedFailed(), state.lastError(),
-				state.artifact(), state.completedAt());
+		entity.apply(state);
 		if (isNew) {
 			this.em.persist(entity);
 		}
@@ -79,15 +78,13 @@ class JpaStageStore implements StageStore {
 			.set(orderStage.reachedFailed, false)
 			.setNull(orderStage.nextAttemptAt)
 			.set(orderStage.updatedAt, OffsetDateTime.now())
-			.where(orderStage.orderId.eq(orderId), orderStage.stage.eq(stage.name()),
-					orderStage.reachedFailed.isTrue())
+			.where(orderStage.orderId.eq(orderId), orderStage.stage.eq(stage), orderStage.reachedFailed.isTrue())
 			.execute() == 1;
 	}
 
 	private static StageState toModel(OrderStageEntity entity) {
-		return new StageState(entity.orderId(), Stage.valueOf(entity.stage()), entity.attempts(),
-				entity.nextAttemptAt(), entity.reachedFailed(), entity.lastError(), entity.artifact(),
-				entity.completedAt());
+		return new StageState(entity.orderId(), entity.stage(), entity.attempts(), entity.nextAttemptAt(),
+				entity.reachedFailed(), entity.lastError(), entity.artifact(), entity.completedAt());
 	}
 
 }

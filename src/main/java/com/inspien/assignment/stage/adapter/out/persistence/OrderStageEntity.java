@@ -6,14 +6,18 @@ import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
 import com.inspien.assignment.global.persistence.BaseTimeEntity;
+import com.inspien.assignment.stage.domain.Stage;
+import com.inspien.assignment.stage.domain.StageState;
 
 /**
- * H2 ORDER_STAGE (schema-h2.sql).
+ * H2 ORDER_STAGE (schema-h2.sql). STAGE는 enum 이름(RECEIPT·SHIPMENT) 그대로 저장한다.
  */
 @Entity
 @Table(name = "ORDER_STAGE")
@@ -25,8 +29,9 @@ class OrderStageEntity extends BaseTimeEntity {
 	private String orderId;
 
 	@Id
+	@Enumerated(EnumType.STRING)
 	@Column(name = "STAGE")
-	private String stage;
+	private Stage stage;
 
 	@Column(name = "ATTEMPTS")
 	private int attempts;
@@ -49,26 +54,28 @@ class OrderStageEntity extends BaseTimeEntity {
 	protected OrderStageEntity() {
 	}
 
-	OrderStageEntity(String orderId, String stage) {
+	OrderStageEntity(String orderId, Stage stage) {
 		this.orderId = orderId;
 		this.stage = stage;
 	}
 
-	void update(int attempts, Instant nextAttemptAt, boolean reachedFailed, String lastError, String artifact,
-			Instant completedAt) {
-		this.attempts = attempts;
-		this.nextAttemptAt = nextAttemptAt;
-		this.reachedFailed = reachedFailed;
-		this.lastError = lastError;
-		this.artifact = artifact;
-		this.completedAt = completedAt;
+	/**
+	 * 도메인이 계산한 진행 상태를 그대로 옮긴다. 키(orderId·stage)는 바꾸지 않는다.
+	 */
+	void apply(StageState state) {
+		this.attempts = state.attempts();
+		this.nextAttemptAt = state.nextAttemptAt();
+		this.reachedFailed = state.reachedFailed();
+		this.lastError = state.lastError();
+		this.artifact = state.artifact();
+		this.completedAt = state.completedAt();
 	}
 
 	String orderId() {
 		return this.orderId;
 	}
 
-	String stage() {
+	Stage stage() {
 		return this.stage;
 	}
 
@@ -100,12 +107,12 @@ class OrderStageEntity extends BaseTimeEntity {
 
 		private String orderId;
 
-		private String stage;
+		private Stage stage;
 
 		Key() {
 		}
 
-		Key(String orderId, String stage) {
+		Key(String orderId, Stage stage) {
 			this.orderId = orderId;
 			this.stage = stage;
 		}

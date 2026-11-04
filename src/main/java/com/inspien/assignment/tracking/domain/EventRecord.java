@@ -9,8 +9,8 @@ import java.time.Instant;
  * @param occurredAt 일어난 시각
  * @param messageId 수신 메시지 ID
  * @param orderId 주문번호
- * @param stage RECEIVE, RECEIPT, SHIPMENT
- * @param result 설계서 §4.2의 RESULT 값
+ * @param stage RECEIVE, RECEIPT, SHIPMENT, CLOSE (EventStage의 이름)
+ * @param result 설계서 §4.2의 RESULT 값 (ProcessEvent.Result의 이름)
  * @param detail 상세
  */
 public record EventRecord(String id, Instant occurredAt, String messageId, String orderId, String stage,

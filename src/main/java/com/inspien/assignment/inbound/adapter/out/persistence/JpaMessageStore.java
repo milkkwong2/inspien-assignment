@@ -71,7 +71,7 @@ class JpaMessageStore implements MessageStore {
 	@Override
 	public void insert(ReceivedMessage message) {
 		this.em.persist(new ReceivedMessageEntity(message.id(), message.key().value(), message.receivedAt(),
-				message.contentType(), message.rawBody(), message.state().name()));
+				message.contentType(), message.rawBody(), message.state()));
 	}
 
 	@Override
@@ -81,7 +81,7 @@ class JpaMessageStore implements MessageStore {
 
 	@Override
 	public void complete(String messageId, ReceiveResult result, Instant completedAt) {
-		find(messageId).finish(MessageState.COMPLETED.name(), 200, JSON.writeValueAsString(result), completedAt);
+		find(messageId).complete(200, JSON.writeValueAsString(result), completedAt);
 	}
 
 	@Override
@@ -89,13 +89,13 @@ class JpaMessageStore implements MessageStore {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("code", code);
 		body.put("detail", detail);
-		find(messageId).finish(MessageState.FAILED.name(), status, JSON.writeValueAsString(body), null);
+		find(messageId).fail(status, JSON.writeValueAsString(body));
 	}
 
 	@Override
 	public Optional<ReceiveResult> findResult(String messageId) {
 		return this.messages.findById(messageId)
-			.filter(entity -> MessageState.COMPLETED.name().equals(entity.state()) && entity.responseBody() != null)
+			.filter(entity -> entity.state() == MessageState.COMPLETED && entity.responseBody() != null)
 			.map(entity -> JSON.readValue(entity.responseBody(), ReceiveResult.class));
 	}
 
@@ -135,7 +135,7 @@ class JpaMessageStore implements MessageStore {
 	 */
 	@Override
 	public List<MessageListItem> findListItems(MessageState state, Instant from, Instant to, String after, int limit) {
-		StringExpression errorBody = new CaseBuilder().when(message.state.ne(MessageState.COMPLETED.name()))
+		StringExpression errorBody = new CaseBuilder().when(message.state.ne(MessageState.COMPLETED))
 			.then(message.responseBody)
 			.otherwise(Expressions.nullExpression(String.class));
 		// where에 null을 넘기면 그 조건은 빠진다. 값이 있는 조건만 붙는다
@@ -152,7 +152,7 @@ class JpaMessageStore implements MessageStore {
 	}
 
 	private static BooleanExpression stateIs(MessageState state) {
-		return (state != null) ? message.state.eq(state.name()) : null;
+		return (state != null) ? message.state.eq(state) : null;
 	}
 
 	private static BooleanExpression receivedFrom(Instant from) {
@@ -168,7 +168,7 @@ class JpaMessageStore implements MessageStore {
 	}
 
 	private static MessageSummary toSummary(ReceivedMessageEntity entity) {
-		MessageState state = MessageState.valueOf(entity.state());
+		MessageState state = entity.state();
 		ReceiveResult result = null;
 		String errorCode = null;
 		String errorDetail = null;
@@ -190,7 +190,7 @@ class JpaMessageStore implements MessageStore {
 	 * 오류 본문(Problem Details JSON)에서 code만 꺼낸다. 완료 메시지는 본문을 읽지 않았고 처리 중 메시지는 본문이 없어 null이다.
 	 */
 	private static MessageListItem toListItem(Tuple row, StringExpression errorBody) {
-		MessageState state = MessageState.valueOf(row.get(message.state));
+		MessageState state = row.get(message.state);
 		String body = row.get(errorBody);
 		String errorCode = (body != null) ? JSON.readTree(body).path("code").asString(null) : null;
 		return new MessageListItem(row.get(message.id), state, row.get(message.responseStatus),
@@ -204,8 +204,7 @@ class JpaMessageStore implements MessageStore {
 
 	private static ReceivedMessage toModel(ReceivedMessageEntity entity) {
 		return new ReceivedMessage(entity.id(), new MessageKey(entity.messageKey()), entity.receivedAt(),
-				entity.contentType(), entity.rawBody(), MessageState.valueOf(entity.state()), entity.responseStatus(),
-				entity.completedAt());
+				entity.contentType(), entity.rawBody(), entity.state(), entity.responseStatus(), entity.completedAt());
 	}
 
 	private static AssignedOrder toModel(MessageOrderEntity entity) {

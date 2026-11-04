@@ -451,6 +451,7 @@ erDiagram
 - `PROCESS_EVENT.RESULT` 값: `SUCCESS`, `FAIL`, `SKIP`(이미 처리됨), `REJECT`, `WARN`, `OPERATOR_RESET`, `CYCLE_SKIPPED`(연결 실패 시작, 상태가 바뀔 때 한 번), `CONNECTION_RECOVERED`(복구, 건너뛴 주기 수 포함), `MISSING_RECORD`(H2에 수신 기록이 없는 주문, `ORDER_ID`는 상세에) (D-22).
   - 마감 스케줄러는 `Y`를 쓸 때 `CLOSE` + `SUCCESS`를 남긴다. 주문 상세의 이벤트에 "연계 완료" 시각이 보인다. 갱신 0건(이미 `Y`)은 남기지 않는다 (D-26).
   - `STATE_MISMATCH`(조건부 갱신 0건)는 쓰지 않는다. `STATUS`를 바꾸는 곳이 마감 스케줄러 하나이고, 그 0건은 정상이다 (D-26).
+- 위 상태 칸(`RECEIVED_MESSAGE.STATE`, `ORDER_STAGE.STAGE`, `PROCESS_EVENT.STAGE`·`RESULT`)은 엔티티에서 enum으로 매핑하고 enum 이름 그대로 저장한다(`@Enumerated(STRING)`). 순서 번호로 저장하지 않으므로 enum 순서를 바꿔도 값이 그대로다. 앱만 쓰는 테이블이라 모르는 값을 만나면 읽기가 실패한다. Oracle `ORDER_TB.STATUS`는 제공 테이블이라 문자열로 읽고 `OrderStatus.fromDb`가 모르는 값을 멈춘다 (D-26).
 - D-13의 "이력 3종"은 `RECEIVED_MESSAGE`, `ORDER_STAGE`, `PROCESS_EVENT`다. `MESSAGE_ORDER`는 채번·중복 방지용(D-05, D-08)이라 따로 센다.
 
 - **`ORDER_STAGE`는 이력이 아니라 진행 상태다 (D-26).** 주문마다 영수증 행과 배송 행이 따로 있다. 단계 완료(`COMPLETED_AT`)와 "사람이 확인"(`REACHED_FAILED`)은 Oracle에 담을 곳이 없어 여기에만 있다. 그래서 최선 노력으로 쓰지 않는다.

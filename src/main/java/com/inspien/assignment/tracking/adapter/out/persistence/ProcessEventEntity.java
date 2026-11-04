@@ -4,13 +4,17 @@ import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import com.inspien.assignment.global.event.EventStage;
+import com.inspien.assignment.global.event.ProcessEvent;
 import com.inspien.assignment.global.persistence.BaseTimeEntity;
 
 /**
- * H2 PROCESS_EVENT (schema-h2.sql).
+ * H2 PROCESS_EVENT (schema-h2.sql). STAGE·RESULT는 enum 이름 그대로 저장한다.
  */
 @Entity
 @Table(name = "PROCESS_EVENT")
@@ -29,11 +33,13 @@ class ProcessEventEntity extends BaseTimeEntity {
 	@Column(name = "ORDER_ID")
 	private String orderId;
 
+	@Enumerated(EnumType.STRING)
 	@Column(name = "STAGE")
-	private String stage;
+	private EventStage stage;
 
+	@Enumerated(EnumType.STRING)
 	@Column(name = "RESULT")
-	private String result;
+	private ProcessEvent.Result result;
 
 	@Column(name = "DETAIL")
 	private String detail;
@@ -41,8 +47,8 @@ class ProcessEventEntity extends BaseTimeEntity {
 	protected ProcessEventEntity() {
 	}
 
-	ProcessEventEntity(String id, Instant occurredAt, String messageId, String orderId, String stage, String result,
-			String detail) {
+	ProcessEventEntity(String id, Instant occurredAt, String messageId, String orderId, EventStage stage,
+			ProcessEvent.Result result, String detail) {
 		this.id = id;
 		this.occurredAt = occurredAt;
 		this.messageId = messageId;
@@ -68,11 +74,11 @@ class ProcessEventEntity extends BaseTimeEntity {
 		return this.orderId;
 	}
 
-	String stage() {
+	EventStage stage() {
 		return this.stage;
 	}
 
-	String result() {
+	ProcessEvent.Result result() {
 		return this.result;
 	}
 

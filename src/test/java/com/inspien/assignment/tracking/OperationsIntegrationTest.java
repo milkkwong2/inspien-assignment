@@ -112,6 +112,29 @@ class OperationsIntegrationTest {
 		assertThat(updatedAt("Z930", Stage.SHIPMENT)).as("벌크 UPDATE도 UPDATED_AT을 바꾼다").isAfter(before);
 	}
 
+	/**
+	 * H2 엔티티는 상태 칸을 enum으로 매핑한다. 저장되는 글자는 enum 이름 그대로여서, 이전에 문자열로 쓴 행과 같다.
+	 */
+	@Test
+	void storesEnumNamesAsText() throws Exception {
+		String orderId = receive("C");
+		for (int i = 0; i < 5; i++) {
+			this.stages.recordFailure(orderId, Stage.RECEIPT, "업로드 권한 오류");
+		}
+		this.mvc.perform(post("/operations/orders/{id}/retry", orderId)).andExpect(status().isOk());
+
+		JdbcTemplate h2 = new JdbcTemplate(this.historyDataSource);
+		assertThat(h2.queryForList("SELECT STAGE FROM ORDER_STAGE WHERE ORDER_ID = ?", String.class, orderId))
+			.containsExactly("RECEIPT");
+		assertThat(h2.queryForList("SELECT STAGE || ':' || RESULT FROM PROCESS_EVENT WHERE ORDER_ID = ?",
+				String.class, orderId))
+			.contains("RECEIVE:SUCCESS", "RECEIPT:OPERATOR_RESET");
+		assertThat(h2.queryForObject(
+				"SELECT m.STATE FROM RECEIVED_MESSAGE m JOIN MESSAGE_ORDER o ON o.MESSAGE_ID = m.ID WHERE o.ORDER_ID = ?",
+				String.class, orderId))
+			.isEqualTo("COMPLETED");
+	}
+
 	@Test
 	void conflictsWhenNothingIsFailedAndHidesOtherApplicants() throws Exception {
 		String pending = receive("B");

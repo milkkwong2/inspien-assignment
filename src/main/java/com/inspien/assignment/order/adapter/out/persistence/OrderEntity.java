@@ -49,6 +49,10 @@ class OrderEntity {
 	@Column(name = "PRICE")
 	private String price;
 
+	/**
+	 * enum으로 매핑하지 않고 문자열로 읽는다. 제공 테이블이라 모르는 값이 있을 수 있고, 그 값은 OrderStatus.fromDb가 예외로
+	 * 멈춘다 (D-26). H2 엔티티의 상태 칸은 앱만 쓰므로 enum으로 매핑한다.
+	 */
 	@Column(name = "STATUS")
 	private String status;
 

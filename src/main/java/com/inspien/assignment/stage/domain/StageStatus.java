@@ -19,18 +19,6 @@ public enum StageStatus {
 	DONE,
 
 	/** 자동 처리 멈춤. 사람이 확인한다 */
-	FAILED;
-
-	/**
-	 * DB 값이 아니라 조회 파라미터를 읽는다. 모르는 값이면 null.
-	 */
-	public static StageStatus parse(String value) {
-		for (StageStatus status : values()) {
-			if (status.name().equals(value)) {
-				return status;
-			}
-		}
-		return null;
-	}
+	FAILED
 
 }

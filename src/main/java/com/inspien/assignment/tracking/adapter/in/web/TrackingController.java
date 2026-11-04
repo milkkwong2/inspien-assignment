@@ -3,7 +3,6 @@ package com.inspien.assignment.tracking.adapter.in.web;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.function.Function;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +25,9 @@ import com.inspien.assignment.tracking.application.TrackingViews;
  * <p>목록: limit 기본 50, 최대 200. 다음 페이지는 after에 page.nextAfter를 넣는다. from·to는 수신 시각 기준 ISO-8601이다
  * (예: 2026-10-31T00:00:00+09:00, URL에서는 +를 %2B로). 주문 목록의 receipt·shipment는 단계 상태(PENDING·DONE·FAILED)다
  * (D-26).
+ *
+ * <p>receipt·shipment·state는 Spring이 enum으로 바꾼다. 비우면 조건이 없고, 모르는 값이면 Spring의 400이 INVALID_REQUEST로
+ * 나간다 (GlobalExceptionHandler).
  */
 @RestController
 @RequestMapping("/tracking")
@@ -48,18 +50,16 @@ class TrackingController {
 	}
 
 	@GetMapping("/orders")
-	ApiResponse<List<TrackingViews.OrderSummary>> orders(@RequestParam(required = false) String receipt,
-			@RequestParam(required = false) String shipment,
+	ApiResponse<List<TrackingViews.OrderSummary>> orders(@RequestParam(required = false) StageStatus receipt,
+			@RequestParam(required = false) StageStatus shipment,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
 			@RequestParam(required = false) String after, @RequestParam(required = false) Integer limit) {
-		StageStatus receiptStatus = parse(receipt, StageStatus::parse, "receipt");
-		StageStatus shipmentStatus = parse(shipment, StageStatus::parse, "shipment");
 		Instant fromAt = instant(from);
 		Instant toAt = instant(to);
 		int size = limit(limit);
-		TrackingViews.Page<TrackingViews.OrderSummary> result = this.tracking.orders(receiptStatus, shipmentStatus,
-				fromAt, toAt, after, size);
+		TrackingViews.Page<TrackingViews.OrderSummary> result = this.tracking.orders(receipt, shipment, fromAt, toAt,
+				after, size);
 		return page(result);
 	}
 
@@ -70,16 +70,15 @@ class TrackingController {
 	}
 
 	@GetMapping("/messages")
-	ApiResponse<List<TrackingViews.MessageSummaryView>> messages(@RequestParam(required = false) String state,
+	ApiResponse<List<TrackingViews.MessageSummaryView>> messages(@RequestParam(required = false) MessageState state,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
 			@RequestParam(required = false) String after, @RequestParam(required = false) Integer limit) {
-		MessageState messageState = parse(state, MessageState::parse, "state");
 		Instant fromAt = instant(from);
 		Instant toAt = instant(to);
 		int size = limit(limit);
-		TrackingViews.Page<TrackingViews.MessageSummaryView> result = this.tracking.messages(messageState, fromAt,
-				toAt, after, size);
+		TrackingViews.Page<TrackingViews.MessageSummaryView> result = this.tracking.messages(state, fromAt, toAt,
+				after, size);
 		return page(result);
 	}
 
@@ -95,17 +94,6 @@ class TrackingController {
 			throw new ApiException(ErrorCode.INVALID_REQUEST, "limit은 1~" + MAX_LIMIT + "이어야 합니다: " + limit);
 		}
 		return limit;
-	}
-
-	private static <T> T parse(String value, Function<String, T> parser, String name) {
-		if (value == null || value.isBlank()) {
-			return null;
-		}
-		T parsed = parser.apply(value);
-		if (parsed == null) {
-			throw new ApiException(ErrorCode.INVALID_REQUEST, name + " 값을 알 수 없습니다: " + value);
-		}
-		return parsed;
 	}
 
 	private static Instant instant(OffsetDateTime time) {

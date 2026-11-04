@@ -12,6 +12,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.inspien.assignment.order.application.CloseFacade;
 import com.inspien.assignment.order.application.OrderService;
@@ -247,12 +248,41 @@ class TrackingIntegrationTest {
 			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 		this.mvc.perform(get("/tracking/orders").param("receipt", "SHIPPED"))
 			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+			.andExpect(jsonPath("$.retryable").value(false));
+		this.mvc.perform(get("/tracking/orders").param("shipment", "done"))
+			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		this.mvc.perform(get("/tracking/messages").param("state", "DONE"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+			.andExpect(jsonPath("$.retryable").value(false));
 		this.mvc.perform(get("/tracking/orders/{id}", "Z998"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("NOT_FOUND"));
 		// 다른 지원자의 주문은 보이지 않는다
 		this.mvc.perform(get("/tracking/orders/{id}", "A150")).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void blankStateParametersMeanNoFilter() throws Exception {
+		String orderId = JsonPath.read(receive("J").getResponse().getContentAsString(), "$.data.stored[0].orderId");
+
+		List<Map<String, Object>> orders = data(get("/tracking/orders").param("after", previous(orderId)));
+		List<Map<String, Object>> blankStages = data(get("/tracking/orders").param("receipt", "")
+			.param("shipment", " ")
+			.param("after", previous(orderId)));
+		assertThat(orders).extracting(order -> order.get("orderId")).contains(orderId);
+		assertThat(blankStages).as("빈 값은 조건 없음").isEqualTo(orders);
+
+		List<Map<String, Object>> messages = data(get("/tracking/messages").param("limit", "200"));
+		List<Map<String, Object>> blankState = data(get("/tracking/messages").param("state", "").param("limit", "200"));
+		assertThat(blankState).as("빈 값은 조건 없음").isNotEmpty().isEqualTo(messages);
+	}
+
+	List<Map<String, Object>> data(MockHttpServletRequestBuilder request) throws Exception {
+		MvcResult result = this.mvc.perform(request).andExpect(status().isOk()).andReturn();
+		return JsonPath.read(result.getResponse().getContentAsString(), "$.data");
 	}
 
 	/**

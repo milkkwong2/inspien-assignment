@@ -27,6 +27,8 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 
+import com.inspien.assignment.global.error.ApiException;
+import com.inspien.assignment.global.error.ErrorCode;
 import com.inspien.assignment.global.event.ProcessEvents;
 import com.inspien.assignment.order.application.CloseFacade;
 import com.inspien.assignment.order.application.OrderService;
@@ -335,6 +337,25 @@ class ArchitectureTest {
 		.should()
 		.dependOnClassesThat(useTransactions())
 		.as("컨트롤러·스케줄러는 트랜잭션 Service가 아니라 …Facade를 부른다 (D-21 6번)");
+
+	/**
+	 * HTTP 오류 계약(ApiException, ErrorCode)은 HTTP로 불리는 코드만 쓴다 (D-18 2026-11-04 보완). 스케줄러·기동·이벤트
+	 * 리스너가 부르는 코드에서 던지면 받아 줄 응답이 없어, 주기 실패로 뭉개지거나 기동이 엉뚱한 이유로 멈춘다.
+	 *
+	 * <p>클래스 이름을 적지 않고 "웹이 아닌 진입점(adapter.in 중 web 밖)에서 닿는 모든 클래스"로 본다. Facade나 그 부품이
+	 * 새로 생겨도 빠지지 않고, 스케줄러가 공용 Service를 거쳐 닿는 곳까지 본다. 두 번째 전송 방식(MQ 등)의 진입점이
+	 * 수신 Facade를 부르면 이 규칙이 실패한다. 그때가 오류 계약을 웹 어댑터의 번역으로 옮길지 다시 볼 때다. 포트
+	 * 인터페이스 너머의 구현(adapter.out)과 Spring 이벤트 수신자는 의존으로 이어지지 않아 따라가지 않는다.
+	 */
+	@ArchTest
+	static final ArchRule onlyHttpCodeUsesApiErrors = noClasses().that()
+		.resideInAPackage(ROOT + ".*.adapter.in..")
+		.and()
+		.resideOutsideOfPackage(ROOT + ".*.adapter.in.web..")
+		.should()
+		.transitivelyDependOnClassesThat()
+		.belongToAnyOf(ApiException.class, ErrorCode.class)
+		.as("스케줄러·기동·이벤트 진입점에서 닿는 코드는 ApiException·ErrorCode를 쓰지 않는다 (D-18)");
 
 	/**
 	 * DB가 셋이고 기본 트랜잭션 매니저가 없으므로 이름 없는 @Transactional을 쓰지 않는다 (D-19).

@@ -34,7 +34,7 @@
 | D-22 | 주변 장애는 기존 경로로: 시작 동기화 실패는 기동 실패, H2 기록 없는 주문은 바로 `*_FAILED`, 우리 쪽 저장소 장애는 횟수 없이 주기 종료, 연결 실패 이벤트는 상태가 바뀔 때만. "주문 실패"는 "건별 실패"로 (D-08·D-10·D-13 보완) (→ D-26 변경) | 빈틈마다 새 장치를 만들지 않는다. 모르는 값은 지어내지 않고 사람에게 넘긴다 | 처음 채번할 때 동기화, 빈 수신일시로 영수증, 매 주기 이벤트 |
 | D-23 | `APPLICANT_KEY`와 지원자 실명은 `config/`(Git 제외)에서 그대로 읽는다. 없으면 기동 실패. 다른 PC에는 `config/`를 복사 | 키는 접속 정보와 한 묶음인 환경 설정이고, 실명은 개인정보다. 과제 API 재호출 시 같은 응답임을 확인했다 | `application.yml`에 직접, 환경 변수 |
 | D-24 | 중복 판단 시간 창은 완료된 메시지에만, 완료 후 1분. 실패(`400` 제외)·처리 중 메시지는 시간과 관계없이 이어서 처리 (D-15·D-16·D-17 변경) | 재전송과 새 주문의 처리가 갈리는 것은 완료된 메시지뿐이다. 실패한 메시지는 어느 쪽이든 "한 번 저장"이 맞다 | 모든 상태에 1분, 10분 유지, 첫 수신부터 세기 |
-| D-25 | 로컬 검증 결과 반영: `APPLICANT_KEY`는 `@TenantId`로 강제(네이티브 SQL 금지), Oracle 오류는 원인 사슬 전체로 연결·자원 계열을 판정 (D-01·D-17 보완) | 실제 동작을 확인한 방법만 쓴다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어써 예외 타입 하나로는 나눌 수 없다 | QueryDSL 공통 조건, Spring 예외 계층만으로 판정 |
+| D-25 | 로컬 검증 결과 반영: `APPLICANT_KEY`는 `@TenantId`로 강제(네이티브 SQL 금지), Oracle 오류는 원인 사슬 전체로 연결·자원 계열을 판정 (D-01·D-17 보완) (→ 2026-11-04 보완: Oracle 포트의 실패 약속은 Spring DB 예외 계층, 분류는 트랜잭션 밖 Facade) | 실제 동작을 확인한 방법만 쓴다. 연결이 끊기면 롤백 예외가 원래 예외를 덮어써 예외 타입 하나로는 나눌 수 없다 | QueryDSL 공통 조건, Spring 예외 계층만으로 판정 |
 | D-26 | `STATUS`는 연계 완료 플래그(`N` 진행 중, `Y` 영수증·배송 모두 완료). 영수증·배송은 따로 처리하고 단계별 진행은 H2에, `Y`는 마감 스케줄러가 씀. 스케줄러 스레드 3개, 운영자 재처리는 H2만 바꾸는 API (D-03·D-04·D-06·D-09·D-10·D-12·D-13·D-19·D-22 변경, D-14·D-18·D-21 보완) | 제공 DB의 CHECK 제약이 `N`·`Y`만 받는다. 상태 칸 하나라는 순차의 이유가 사라졌고, FTP 장애가 출고를 막지 않게 한다. `Y`는 지울 수 없는 Oracle에 남아 H2를 잃어도 끝난 주문을 다시 보지 않는다 | 순차 유지, `Y` = 배송 완료, 두 스케줄러가 서로 확인, H2만 사용, 스레드 1개, 주문별 잠금 |
 | D-27 | H2 엔티티 모두에 공통 시각 필드 `CREATED_AT`·`UPDATED_AT`, 공통 클래스의 JPA 표준 콜백(`@PrePersist`·`@PreUpdate`)으로 채움. Oracle 엔티티는 제외 (D-19 보완) | "행이 언제 생기고 바뀌었나"를 모든 테이블에서 같은 이름으로 본다. 설정 없이 엔티티 매니저 3개에서 동작하고 이전 프로젝트와 같은 방식이다. 업무 시각과는 섞지 않는다 | Spring Data JPA Auditing, Hibernate `@CreationTimestamp`, Oracle 생성 시각 매핑 |
 
@@ -1394,7 +1394,7 @@ com.inspien.assignment
 
 ### D-25. 로컬 검증 결과 반영: `@TenantId`와 Oracle 오류 판정 (D-01·D-17 보완)
 
-- **상태:** 결정 (2026-11-01). 설계서 §11의 "구현하며 로컬에서 확인할 것" 두 항목을 해소한다.
+- **상태:** 결정 (2026-11-01). 설계서 §11의 "구현하며 로컬에서 확인할 것" 두 항목을 해소한다. **2026-11-04 보완:** Oracle 포트의 실패 약속과 그것을 나누는 곳을 적는다 (아래 3번).
 - **방법:** 운영과 같은 조건(앱 계정 권한 SELECT·INSERT·UPDATE, 다른 지원자의 행이 든 공용 테이블)의 로컬 Oracle 컨테이너(D-14)에서 확인했다. 확인한 내용은 회귀 테스트로 남겼다 (`verification` 패키지).
 
 **1. `@TenantId`는 복합 PK 구성 컬럼에서도 동작한다.**
@@ -1432,6 +1432,13 @@ com.inspien.assignment
   - JDBC: `SQLRecoverableException`, `SQLTransientConnectionException`, `SQLNonTransientConnectionException`, SQLState `08xxx`, 소켓 시간 초과·접속 실패
 - 수신의 `503`/`500` 구분(D-17)과 스케줄러의 연결 실패/건별 실패 구분(D-10, D-22)이 같은 판정을 쓴다.
 
+**3. 2026-11-04 보완: Oracle 포트의 실패 약속은 Spring DB 예외 계층이다.**
+
+- **지금:** Oracle 포트(`OrderStore`·`ShipmentStore`)는 예외를 따로 정의하지 않고, 실패하면 Spring DB 예외 계층(`DataAccessException`·`TransactionException`)으로 나간다. 분류는 트랜잭션 바깥(`…Facade`와 주기 도구 `CycleRunner`)에서 `DbFailures`로 한다. 커밋 때의 예외는 트랜잭션 밖에서만 보이고, 연결이 끊기면 롤백 예외가 원래 예외를 덮어 트랜잭션 안에서는 원인을 알 수 없기 때문이다(위 2번). 반면 FTP 포트(`ReceiptUploader`)는 Spring에 같은 추상화가 없어 포트가 예외(`ConnectionFailedException`·`UploadFailedException`)를 직접 정의한다. 두 방식이 섞여 있어 포트 javadoc에 약속을 적었다.
+- **원칙대로라면:** 포트마다 자기 예외를 정의하고 어댑터가 번역한다. 그러려면 트랜잭션도 어댑터로 내려야 한다. 트랜잭션이 Service에 있는 한 커밋 때의 예외는 어댑터를 지난 뒤에 나와, 어댑터에는 번역할 기회가 없다.
+- **타협을 고른 이유:** 트랜잭션은 Service에 둔다(Spring 표준, D-19, D-21 6번). Spring DB 예외 계층은 이미 영속성 기술을 가린다: JPA를 JDBC나 MyBatis로 바꿔도 같은 계층으로 번역되므로 Facade의 `catch`는 그대로다. Facade를 고쳐야 하는 것은 포트 구현이 DB가 아닌 것(예: 운송사 REST API)으로 바뀔 때뿐이다. 그때는 그 포트가 FTP처럼 자기 예외를 정의한다.
+- **ArchUnit:** `application`은 영속성 기술(JPA, Hibernate, Spring Data, JDBC)을 쓰지 못하고, Spring DB·트랜잭션 예외(`org.springframework.dao`, `org.springframework.transaction`)만 볼 수 있다 (`applicationDoesNotKnowPersistence`).
+
 **고르지 않은 것.**
 
 | 방법 | 고르지 않은 이유 |
@@ -1439,6 +1446,7 @@ com.inspien.assignment
 | QueryDSL 공통 조건으로 `APPLICANT_KEY` 강제 | `@TenantId`가 동작하므로 필요 없다. 쿼리마다 공통 조건을 거쳐야 해서 빠뜨릴 여지가 남는다 |
 | Spring 예외 계층(`TransientDataAccessException` 등)만으로 판정 | 연결이 끊긴 경우 밖에서 보이는 예외가 `JpaSystemException`이라 거절로 잘못 분류된다. 그러면 결과 불명인 요청에 재전송하지 말라고(`500`) 답하게 된다 |
 | 트랜잭션 안에서 원래 예외를 잡아 따로 넘기기 | 트랜잭션 경계마다 같은 처리를 넣어야 하고, 커밋 시점 예외는 어차피 밖에서만 보인다 |
+| Oracle 포트마다 자기 예외, 어댑터에서 번역 (2026-11-04 검토) | 트랜잭션을 어댑터로 내려야 한다. Service에 두면 커밋 때의 예외는 어댑터 밖에서 나온다. Spring DB 예외 계층이 이미 JPA·JDBC·MyBatis 교체를 가려, 얻는 것은 DB가 아닌 구현으로 바꿀 때뿐이다 (위 3번) |
 
 ### D-26. `STATUS`는 연계 완료 플래그(N/Y), 영수증·배송은 따로 처리하고 마감 스케줄러가 `Y`를 쓴다 (D-03·D-04·D-06·D-09·D-10·D-12·D-13·D-19·D-22 변경, D-14·D-18·D-21 보완)
 

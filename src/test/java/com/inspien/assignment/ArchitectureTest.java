@@ -121,7 +121,8 @@ class ArchitectureTest {
 
 	/**
 	 * 서비스는 정규 모델과 포트만 본다. 영속성 기술(JPA, QueryDSL, Hibernate, Spring Data, JDBC)은 어댑터 안쪽에 둔다.
-	 * Spring의 DB 예외(org.springframework.dao)와 트랜잭션 예외는 서비스가 장애를 나누려고 잡으므로 막지 않는다 (D-22).
+	 * Spring의 DB 예외(org.springframework.dao)와 트랜잭션 예외는 막지 않는다. Oracle 포트의 실패 약속이고, Facade가
+	 * 트랜잭션 밖에서 받아 장애를 나눈다 (D-22, D-25 2026-11-04 보완).
 	 */
 	@ArchTest
 	static final ArchRule applicationDoesNotKnowPersistence = noClasses().that()

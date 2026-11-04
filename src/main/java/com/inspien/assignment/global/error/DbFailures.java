@@ -28,6 +28,10 @@ import org.springframework.transaction.CannotCreateTransactionException;
  * <li>응답 시간 초과로 연결이 끊기면 롤백도 실패해, 트랜잭션 밖에서는 원래 예외 대신 "Connection is closed"
  * 롤백 예외(hibernate TransactionException)가 보인다.</li>
  * </ul>
+ *
+ * <p>트랜잭션 바깥(Facade, 주기 도구 CycleRunner)에서만 부른다. 위의 이유로 트랜잭션 안에서는 원인이 보이지 않는다.
+ * Oracle 포트(OrderStore·ShipmentStore)의 실패 약속이 Spring DB 예외 계층이라, 포트 구현의 영속성 기술이 바뀌어도 이
+ * 분류는 그대로다 (D-25 2026-11-04 보완).
  */
 public final class DbFailures {
 
